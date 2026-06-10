@@ -19,6 +19,11 @@ import net.minecraftforge.fml.relauncher.SideOnly;
 @SideOnly(Side.CLIENT)
 public class LayerArmorLittleMaid extends LMLayerArmorBase {
 
+	@Override
+	protected void initArmor() {
+		
+	}
+
 	public LayerArmorLittleMaid(LMRenderMultiModel<? extends EntityLiving> rendererIn) {
 		super(rendererIn);
 	}
