@@ -11,9 +11,10 @@ apply plugin: 'net.minecraftforge.gradle.forge'
 //Only edit below this line, the above code adds and enables the nessasary things for Forge to be setup.
 
 repositories {
+    // 已经改为本地读取，可以保留仓库声明以防其他插件需要
     maven {
     	name = "JEI"
-        url = "http://dvs1.progwml6.com/files/maven"
+        url = "https://maven.blamejared.com"
     }
     maven {
     	name = "HWYLA"
@@ -44,29 +45,12 @@ minecraft {
 }
 
 dependencies {
-    // you may put jars on which you depend on in ./libs
-    // or you may define them like so..
-    //compile "some.group:artifact:version:classifier"
-    //compile "some.group:artifact:version"
-      
-    // real examples
-    //compile 'com.mod-buildcraft:buildcraft:6.0.8:dev'  // adds buildcraft to the dev env
-    //compile 'com.googlecode.efficient-java-matrix-library:ejml:0.24' // adds ejml to the dev env
+    // ======= 修改为读取本地 mods 文件夹中的依赖 =======
+    compile files('mods/jei_1.12.2-4.10.0.198.jar')
+    deobfCompile files('mods/Hwyla-1.8.26-B41_1.12.2.jar')
 
-    // the 'provided' configuration is for optional dependencies that exist at compile-time but might not at runtime.
-    //provided 'com.mod-buildcraft:buildcraft:6.0.8:dev'
-
-    // the deobf configurations:  'deobfCompile' and 'deobfProvided' are the same as the normal compile and provided,
-    // except that these dependencies get remapped to your current MCP mappings
-    //deobfCompile 'com.mod-buildcraft:buildcraft:6.0.8:dev'
-    //deobfProvided 'com.mod-buildcraft:buildcraft:6.0.8:dev'
-
-    // for more info...
-    // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
-    // http://www.gradle.org/docs/current/userguide/dependency_management.html
-    compile "mezz.jei:jei_1.12.2:4.10.0.198"
-    deobfCompile "mcp.mobius.waila:Hwyla:1.8.26-B41_1.12.2"
-    compile fileTree(dir: './mods', include: '*.jar')
+    // 排除掉刚才指定过的包，防止重复加载导致冲突
+    compile fileTree(dir: './mods', include: '*.jar', excludes: ['jei_1.12.2-4.10.0.198.jar', 'Hwyla-1.8.26-B41_1.12.2.jar'])
     compile fileTree(dir: './mods', include: '*.zip')
 }
 
@@ -111,5 +95,4 @@ task zipBuild(type: Zip, dependsOn: devJar) {
 artifacts {
     archives devJar
     archives zipBuild
-} 
-
+}
