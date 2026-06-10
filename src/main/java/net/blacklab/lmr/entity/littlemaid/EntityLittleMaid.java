@@ -1418,11 +1418,6 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 	}
 
 	@Override
-	public AxisAlignedBB getEntityBoundingBox() {
-		return super.getEntityBoundingBox();
-	}
-
-	@Override
 	public void setDead() {
 		
 //		if (mstatgotcha != null&&maidAvatar != null) {
@@ -1432,31 +1427,33 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 //			mstatgotcha = null;
 //		}
 		
-		//ログ出力処理
-		try {
-			LittleMaidReengaged.logger.info("EntityLittleMaid.setDead[" 
-					+ this.getName() + ":" 
-					+ this.jobController.getMaidModeString() + "---" 
-					+ this.getModelConfigCompound().getTextureModelNameLittleMaid() + "" 
-					+ "(" + this.getModelConfigCompound().getColor() + ")" + "---"
-					+ "contract[" + this.isContract() + "]:"
-					+ "wait[" + this.isMaidWait() + "]:"
-					+ "freedom[" + this.isFreedom() + "]:"
-					+ "hp[" + this.getHealth() + "]:"
-					+ "[" + this.getPosition().toString() + "]:"
-					+ this.getUniqueID().toString() 
-					+ "]");
-			
-			StackTraceElement[] stacktraces = Thread.currentThread().getStackTrace();
-			for (int i = 0; i < stacktraces.length; i++) {
-				StackTraceElement stacktrace = stacktraces[i];
-				LittleMaidReengaged.logger.info("    at " + stacktrace.getClassName() + "."
-						+ stacktrace.getMethodName() + ":"
-						+ stacktrace.getLineNumber() + "");
+		// ログ出力処理 (加入了 JVM 指令开关，默认完全静默)
+		if (Boolean.getBoolean("lmr.debug.death")) {
+			try {
+				LittleMaidReengaged.logger.info("EntityLittleMaid.setDead[" 
+						+ this.getName() + ":" 
+						+ this.jobController.getMaidModeString() + "---" 
+						+ this.getModelConfigCompound().getTextureModelNameLittleMaid() + "" 
+						+ "(" + this.getModelConfigCompound().getColor() + ")" + "---"
+						+ "contract[" + this.isContract() + "]:"
+						+ "wait[" + this.isMaidWait() + "]:"
+						+ "freedom[" + this.isFreedom() + "]:"
+						+ "hp[" + this.getHealth() + "]:"
+						+ "[" + this.getPosition().toString() + "]:"
+						+ this.getUniqueID().toString() 
+						+ "]");
+				
+				StackTraceElement[] stacktraces = Thread.currentThread().getStackTrace();
+				for (int i = 0; i < stacktraces.length; i++) {
+					StackTraceElement stacktrace = stacktraces[i];
+					LittleMaidReengaged.logger.info("    at " + stacktrace.getClassName() + "."
+							+ stacktrace.getMethodName() + ":"
+							+ stacktrace.getLineNumber() + "");
+				}
+				
+			} catch (Exception e) {
+			} catch (Error e) {
 			}
-			
-		} catch (Exception e) {
-		} catch (Error e) {
 		}
 		
 		//PlayerAvatarも消去
@@ -1466,6 +1463,7 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		
 		super.setDead();
 	}
+
 
 	/**
 	 * 読み込み領域内のメイドさんの数
