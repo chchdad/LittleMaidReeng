@@ -24,32 +24,27 @@ jobs:
     - name: Grant Execute Permission for Gradlew
       run: chmod +x gradlew
 
-    - name: 🔍 探查女仆模组(LMR)的工作与AI逻辑
+    - name: 🔍 探查女仆模组(LMR)的【农夫模式】工作逻辑
       run: |
           echo "====================================================="
-          echo "🔍 1. 探查女仆的核心模式控制器 (JobController)"
+          echo "🔍 1. 查看农夫如何判断作物是否成熟 (Harvest 逻辑)"
           echo "====================================================="
-          # 寻找女仆是如何切换和管理当前职业的
-          grep -rnC 5 "setMaidMode" src/main/java/net/blacklab/lmr/entity/littlemaid/EntityLittleMaid.java || echo "未找到模式切换方法"
+          # 搜索与农作物生长阶段(AGE)、或者成熟判断(isMaxAge/isMature)相关的代码
+          grep -rnC 8 "AGE" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到 AGE 状态"
+          grep -rnC 8 "isMaxAge" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到成熟判断"
           
           echo "====================================================="
-          echo "🔍 2. 查看女仆究竟支持哪些工作模式 (EntityMode 列表)"
+          echo "🔍 2. 查看农夫如何识别种子和可种植的方块 (Plant 逻辑)"
           echo "====================================================="
-          # 列出 mode 文件夹下的所有文件，看看都有哪些职业
-          ls -l src/main/java/net/blacklab/lmr/entity/littlemaid/mode/ || echo "未找到 mode 文件夹"
+          # 搜索 IPlantable 接口，这是 Forge 判断物品是否为种子的标准
+          grep -rnC 6 "IPlantable" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到 IPlantable"
           
           echo "====================================================="
-          echo "🔍 3. 偷窥【火把模式】(TorchLayer) 是如何判断哪里该插火把的"
+          echo "🔍 3. 偷窥农夫的“右键使用”逻辑 (播种与锄地)"
           echo "====================================================="
-          # 搜索火把模式下的亮度检测与放置逻辑
-          grep -rnC 10 "getLightFromNeighbors" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_TorchLayer.java || echo "未找到火把亮度检测逻辑"
-          grep -rnC 8 "setBlockState" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_TorchLayer.java || echo "未找到火把放置逻辑"
-          
-          echo "====================================================="
-          echo "🔍 4. 偷窥【药师模式】(Pharmacist) 是如何给人加血的"
-          echo "====================================================="
-          # 搜索药师模式下检测血量或使用药水的逻辑
-          grep -rnC 8 "Potion" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Pharmacist.java || echo "未找到药水逻辑"
+          # 看看女仆是如何模拟玩家右键使用锄头或种子的
+          grep -rnC 10 "ItemHoe" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到锄头逻辑"
+          grep -rnC 10 "onItemUse" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到右键使用逻辑"
 
 
     #- name: Build with Gradle
