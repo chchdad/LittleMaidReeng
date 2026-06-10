@@ -10,7 +10,6 @@ buildscript {
 apply plugin: 'net.minecraftforge.gradle.forge'
 
 repositories {
-    // 核心黑科技：把本地的 mods 文件夹伪装成一个远程代码仓库
     flatDir {
         dirs 'mods'
     }
@@ -32,10 +31,11 @@ minecraft {
 }
 
 dependencies {
-    // 采用标准坐标语法读取本地 mods 文件夹中的包，完美绕过 FG2.3 的封锁
     compile name: 'jei_1.12.2', version: '4.10.0.198'
     deobfCompile name: 'Hwyla', version: '1.8.26-B41_1.12.2'
+    compile name: 'lmlibrary', version: '1.7.9-1.12.2'
 }
+
 
 processResources {
     inputs.property "version", project.version
