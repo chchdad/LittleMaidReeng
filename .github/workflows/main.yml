@@ -24,18 +24,36 @@ jobs:
     - name: Grant Execute Permission for Gradlew
       run: chmod +x gradlew
 
-    - name: 🔍 搜索女仆模组的刷屏内鬼代码
+    - name: 🔍 探查女仆模组(LMR)的工作与AI逻辑
       run: |
-          echo "=== 正在搜索 getStackTrace ==="
-          grep -rn "getStackTrace" src/main/java/ || echo "未找到 getStackTrace"
-          echo "=== 正在搜索 dumpStack ==="
-          grep -rn "dumpStack" src/main/java/ || echo "未找到 dumpStack"
-          echo "=== 正在搜索 PrintDeathStackTrace ==="
-          grep -rn "PrintDeathStackTrace" src/main/java/ || echo "未找到 PrintDeathStackTrace"
+          echo "====================================================="
+          echo "🔍 1. 探查女仆的核心模式控制器 (JobController)"
+          echo "====================================================="
+          # 寻找女仆是如何切换和管理当前职业的
+          grep -rnC 5 "setMaidMode" src/main/java/net/blacklab/lmr/entity/littlemaid/EntityLittleMaid.java || echo "未找到模式切换方法"
           
+          echo "====================================================="
+          echo "🔍 2. 查看女仆究竟支持哪些工作模式 (EntityMode 列表)"
+          echo "====================================================="
+          # 列出 mode 文件夹下的所有文件，看看都有哪些职业
+          ls -l src/main/java/net/blacklab/lmr/entity/littlemaid/mode/ || echo "未找到 mode 文件夹"
+          
+          echo "====================================================="
+          echo "🔍 3. 偷窥【火把模式】(TorchLayer) 是如何判断哪里该插火把的"
+          echo "====================================================="
+          # 搜索火把模式下的亮度检测与放置逻辑
+          grep -rnC 10 "getLightFromNeighbors" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_TorchLayer.java || echo "未找到火把亮度检测逻辑"
+          grep -rnC 8 "setBlockState" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_TorchLayer.java || echo "未找到火把放置逻辑"
+          
+          echo "====================================================="
+          echo "🔍 4. 偷窥【药师模式】(Pharmacist) 是如何给人加血的"
+          echo "====================================================="
+          # 搜索药师模式下检测血量或使用药水的逻辑
+          grep -rnC 8 "Potion" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Pharmacist.java || echo "未找到药水逻辑"
 
-    - name: Build with Gradle
-      run: ./gradlew build
+
+    #- name: Build with Gradle
+    #  run: ./gradlew build
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
