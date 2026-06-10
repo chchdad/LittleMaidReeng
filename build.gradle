@@ -33,7 +33,7 @@ minecraft {
 dependencies {
     compile name: 'jei_1.12.2', version: '4.10.0.198'
     deobfCompile name: 'Hwyla', version: '1.8.26-B41_1.12.2'
-    compile name: 'lmlibrary', version: '1.7.9-1.12.2'
+    compile name: 'LMLibrary', version: '1.1.5'
 }
 
 
