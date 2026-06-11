@@ -56,7 +56,7 @@ public class EntityMode_Farmer extends EntityModeBase {
 	public void init() {
 		ModeTriggerRegisterHelper.register(mmode_Farmer, mtrigger_Hoe);
 		//メイドモードをFarmerSeedで種を設定できるように想定
-		ModeTriggerRegisterHelper.register(mode_Farmer + "Seed", mtrigger_Seed);
+		ModeTriggerRegisterHelper.register(mmode_Farmer + "Seed", mtrigger_Seed);
 	}
 
 	@Override
