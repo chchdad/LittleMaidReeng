@@ -113,34 +113,41 @@ public class LMItemMaidSouvenir extends Item {
         return stack.hasTagCompound() ? EnumRarity.RARE : EnumRarity.COMMON;
     }
 
-    // ====================================================================
-    // 专属不死实体类 (免疫一切环境伤害 + 主人潜行右键 3 次捏碎超度 + 虚空回归)
+     // ====================================================================
+    // 专属不死实体类 (动态特权版：有主人则绝对不朽，无主人则普通物品)
     // ====================================================================
     public static class EntityItemMaidSouvenir extends EntityItem {
         
-        // 【新增】：记录捏碎进度
         private int crushProgress = 0;
+        // 【新增】：记录上一次成功点击的时间戳（以实体存活的 Tick 为单位）
+        private int lastCrushTick = 0; 
         
         public EntityItemMaidSouvenir(World worldIn, double x, double y, double z, ItemStack stack) {
             super(worldIn, x, y, z, stack);
-            this.isImmuneToFire = true;
-            this.setEntityInvulnerable(true);
-            this.lifespan = Integer.MAX_VALUE;
         }
 
         public EntityItemMaidSouvenir(World worldIn) {
             super(worldIn);
-            this.isImmuneToFire = true;
-            this.setEntityInvulnerable(true);
-            this.lifespan = Integer.MAX_VALUE;
         }
 
-        /**
-         * 【认主超度核心】：需要连续潜行右键 3 次才能销毁！
-         */
+        private boolean hasValidOwner() {
+            ItemStack stack = this.getItem();
+            return !stack.isEmpty() && stack.hasTagCompound() && stack.getTagCompound().hasKey("maid_owner");
+        }
+
+        @Override
+        public void onUpdate() {
+            super.onUpdate();
+            if (hasValidOwner()) {
+                this.isImmuneToFire = true;
+                this.lifespan = Integer.MAX_VALUE; 
+            } else {
+                this.isImmuneToFire = false;
+            }
+        }
+
         @Override
         public boolean processInitialInteract(EntityPlayer player, EnumHand hand) {
-            // 必须在服务端执行，玩家必须潜行，且【只能是主手】（防止右键一下触发两次）
             if (!this.world.isRemote && player.isSneaking() && hand == EnumHand.MAIN_HAND) {
                 ItemStack stack = this.getItem();
                 
@@ -149,10 +156,25 @@ public class LMItemMaidSouvenir extends Item {
                     
                     if (player.getUniqueID().toString().equals(ownerTarget) || player.getName().equals(ownerTarget)) {
                         
+                        int currentTick = this.ticksExisted;
+                        
+                        // 【限时重置系统】：如果距离上次点击超过 10 秒 (200 Ticks)，进度清零
+                        if (this.crushProgress > 0 && (currentTick - this.lastCrushTick > 200)) {
+                            this.crushProgress = 0;
+                            // 发送一条黄色的中断提示
+                            player.sendMessage(new net.minecraft.util.text.TextComponentString("§e[系统] 销毁操作超时，进度已重置。"));
+                        }
+                        
+                        // 【防长按/防连点系统】：如果两次有效点击间隔小于 0.5 秒 (10 Ticks)，直接拦截并无视
+                        if (this.crushProgress > 0 && (currentTick - this.lastCrushTick < 10)) {
+                            return true; 
+                        }
+                        
+                        // 记录本次有效点击的时间戳，并增加进度
+                        this.lastCrushTick = currentTick;
                         this.crushProgress++;
                         
                         if (this.crushProgress >= 3) {
-                            // 【第 3 次：彻底销毁】
                             this.world.playSound(null, this.posX, this.posY, this.posZ, 
                                     net.minecraft.init.SoundEvents.BLOCK_GLASS_BREAK, 
                                     net.minecraft.util.SoundCategory.PLAYERS, 1.0F, 0.5F);
@@ -164,29 +186,21 @@ public class LMItemMaidSouvenir extends Item {
                                     25, 0.2D, 0.2D, 0.2D, 0.0D);
                             }
                             
-                            //发送多语言提示 (灰色)
                             net.minecraft.util.text.TextComponentTranslation doneMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_done");
                             doneMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.DARK_GRAY);
                             player.sendMessage(doneMsg);
                             
                             this.setDead();
-                            
                         } else {
-                            // 【前 2 次：警告与音效】
                             this.world.playSound(null, this.posX, this.posY, this.posZ, 
                                     net.minecraft.init.SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 
                                     net.minecraft.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
                             
                             int leftClicks = 3 - this.crushProgress;
-                            
-                            // 发送多语言带参数的警告提示 (红色)
-                            // 这里的 leftClicks 会自动填入语言文件里的 %s 或 %d 占位符中
                             net.minecraft.util.text.TextComponentTranslation warnMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_warning", leftClicks);
                             warnMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.RED);
                             player.sendMessage(warnMsg);
                         }
-
-                        
                         return true; 
                     }
                 }
@@ -194,48 +208,48 @@ public class LMItemMaidSouvenir extends Item {
             return super.processInitialInteract(player, hand);
         }
 
-        /**
-         * 拦截一切常规物理、生物、爆炸伤害 (关闭了铁砧后门，全面防爆)
-         */
         @Override
         public boolean attackEntityFrom(DamageSource source, float amount) {
             if (source == DamageSource.OUT_OF_WORLD) {
                 return super.attackEntityFrom(source, amount);
             }
-            return false; 
+            if (hasValidOwner()) {
+                return false; 
+            }
+            return super.attackEntityFrom(source, amount);
         }
 
-        /**
-         * 虚空坠落保护
-         */
         @Override
         protected void outOfWorld() {
-            if (!this.world.isRemote) {
-                WorldServer overworld = DimensionManager.getWorld(0);
-                if (overworld != null) {
-                    BlockPos spawnPos = overworld.getSpawnPoint();
-                    
-                    EntityItemMaidSouvenir safeItem = new EntityItemMaidSouvenir(
-                        overworld, 
-                        spawnPos.getX() + 0.5D, 
-                        spawnPos.getY() + 1.5D, 
-                        spawnPos.getZ() + 0.5D, 
-                        this.getItem().copy() 
-                    );
-                    
-                    safeItem.motionX = 0; 
-                    safeItem.motionY = 0; 
-                    safeItem.motionZ = 0;
-                    safeItem.setDefaultPickupDelay();
-                    
-                    if (LMRConfig.cfg_general_item_glowing) {
-                        safeItem.setGlowing(true);
+            if (hasValidOwner()) {
+                if (!this.world.isRemote) {
+                    WorldServer overworld = DimensionManager.getWorld(0);
+                    if (overworld != null) {
+                        BlockPos spawnPos = overworld.getSpawnPoint();
+                        
+                        EntityItemMaidSouvenir safeItem = new EntityItemMaidSouvenir(
+                            overworld, 
+                            spawnPos.getX() + 0.5D, 
+                            spawnPos.getY() + 1.5D, 
+                            spawnPos.getZ() + 0.5D, 
+                            this.getItem().copy() 
+                        );
+                        
+                        safeItem.motionX = 0; 
+                        safeItem.motionY = 0; 
+                        safeItem.motionZ = 0;
+                        safeItem.setDefaultPickupDelay();
+                        
+                        if (LMRConfig.cfg_general_item_glowing) {
+                            safeItem.setGlowing(true);
+                        }
+                        
+                        overworld.spawnEntity(safeItem);
                     }
-                    
-                    overworld.spawnEntity(safeItem);
+                    this.setDead();
                 }
-                this.setDead();
+            } else {
+                super.outOfWorld();
             }
         }
     }
-}
