@@ -113,7 +113,7 @@ public class LMItemMaidSouvenir extends Item {
         return stack.hasTagCompound() ? EnumRarity.RARE : EnumRarity.COMMON;
     }
 
-     // ====================================================================
+    // ====================================================================
     // 专属不死实体类 (动态特权版：有主人则绝对不朽，无主人则普通物品)
     // ====================================================================
     public static class EntityItemMaidSouvenir extends EntityItem {
@@ -253,3 +253,4 @@ public class LMItemMaidSouvenir extends Item {
             }
         }
     }
+}
