@@ -4,6 +4,7 @@ import net.blacklab.lmr.entity.littlemaid.EntityLittleMaid;
 import net.blacklab.lmr.entity.littlemaid.mode.EntityMode_Farmer;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockCrops;
+import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.ai.EntityAIMoveToBlock;
 import net.minecraft.init.Blocks;
@@ -21,9 +22,7 @@ import firis.lmlib.api.constant.EnumSound;
 public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private final EntityLittleMaid maid;
     
-    // 我们自己接管的短冷却器，0.5秒到1.5秒扫一次
     private int customScanDelay = 0;
-    // 动作是否完成的标志
     private boolean actionCompleted = false;
 
     public EntityAILMRFarmer(EntityLittleMaid entityMaid, double speedIn) {
@@ -42,17 +41,14 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             return false;
         }
 
-        // 接管并覆盖原版的脑残 200 Tick 冷却！
         if (this.customScanDelay > 0) {
             this.customScanDelay--;
             return false;
         }
 
-        // 强行把原版冷却清零，逼迫它立刻调用底层搜索逻辑
         this.runDelay = 0;
         boolean foundTarget = super.shouldExecute();
         
-        // 搜索完后，进入我们自己的短冷却（10到30 Tick）
         this.customScanDelay = 10 + this.maid.getRNG().nextInt(20);
 
         if (foundTarget) {
@@ -65,12 +61,11 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     @Override
     public void startExecuting() {
         super.startExecuting();
-        this.actionCompleted = false; // 任务开始，标志复位
+        this.actionCompleted = false; 
     }
 
     @Override
     public boolean shouldContinueExecuting() {
-        // 如果干完活了（actionCompleted 为 true），立刻中止当前寻路，准备找下一个目标！
         return !actionCompleted && super.shouldContinueExecuting() && EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) && !maid.isMaidWait();
     }
 
@@ -78,8 +73,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     protected boolean shouldMoveTo(World worldIn, BlockPos pos) {
         IBlockState state = worldIn.getBlockState(pos);
         Block block = state.getBlock();
-        ItemStack offhandItem = maid.maidAvatar.getHeldItemOffhand();
-        boolean isPeaceful = (!offhandItem.isEmpty() && offhandItem.getItem() == Items.WHEAT_SEEDS);
 
         if (block == Blocks.REEDS && worldIn.getBlockState(pos.down()).getBlock() == Blocks.REEDS) return true;
         if (block instanceof BlockCrops && ((BlockCrops) block).isMaxAge(state)) return true;
@@ -96,7 +89,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 if (isFarmedLand(worldIn, pos, seedStack)) return true;
             }
         }
-        if (!isPeaceful && isUnfarmedLand(worldIn, pos)) return true;
+        
+        // 开垦荒地判定
+        if (isUnfarmedLand(worldIn, pos)) return true;
 
         return false;
     }
@@ -105,20 +100,14 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     public void updateTask() {
         super.updateTask();
         
-        // 【核心修复】：放宽距离判定！只要距离在 4.5 范围内（大约两格出头），就算走到了！
         double dist = maid.getDistanceSqToCenter(this.destinationBlock);
         
         if (dist < 4.5D) {
             System.out.println("[LMR-FARM-DEBUG] 抵达目标 " + this.destinationBlock + "，距离 " + dist + "，开始执行动作！");
-            
-            // 执行破坏、种植等逻辑
             executeAction();
-            
-            // 动作完毕，标记为完成，逼迫 AI 瞬间结束当前周期
             this.actionCompleted = true;
-            this.customScanDelay = 5; // 干完活只休息 5 Tick 就接着扫下一个
+            this.customScanDelay = 5; 
         } else {
-            // 如果还没走到，头看向目标
             this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
         }
     }
@@ -129,8 +118,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         IBlockState state = world.getBlockState(pos);
         Block block = state.getBlock();
         ItemStack curStack = maid.getCurrentEquippedItem();
-        ItemStack offhandItem = maid.maidAvatar.getHeldItemOffhand();
-        boolean isPeaceful = (!offhandItem.isEmpty() && offhandItem.getItem() == Items.WHEAT_SEEDS);
 
         if (block == Blocks.REEDS && world.getBlockState(pos.down()).getBlock() == Blocks.REEDS) {
             world.destroyBlock(pos, true);
@@ -170,7 +157,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 }
             }
         }
-        else if (!isPeaceful && isUnfarmedLand(world, pos)) {
+        else if (isUnfarmedLand(world, pos)) {
             if (curStack.onItemUse(maid.maidAvatar, world, pos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 1.0F, 0.5F) == EnumActionResult.SUCCESS) {
                 maid.setSwing(10, EnumSound.FARMER_FARM, false);
                 curStack.damageItem(1, maid.maidAvatar); 
@@ -180,6 +167,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     }
 
     private int getHadSeedIndex(){
+        // 完全摒弃了之前的复杂比对逻辑，只要是能种的 IPlantable 直接拿来用
         for (int i=0; i < maid.maidInventory.getSizeInventory(); i++) {
             ItemStack pStack = maid.maidInventory.getStackInSlot(i);
             if (!pStack.isEmpty() && pStack.getItem() instanceof IPlantable) return i;
@@ -187,14 +175,30 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         return -1;
     }
 
+    private boolean isBlockWatered(World world, BlockPos pos) {
+        int radius = 4;
+        for (BlockPos.MutableBlockPos mutablePos : BlockPos.getAllInBoxMutable(pos.add(-radius, 0, -radius), pos.add(radius, 1, radius))) {
+            if (world.getBlockState(mutablePos).getMaterial() == Material.WATER) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private boolean isUnfarmedLand(World world, BlockPos pos) {
+        // 【和平模式开关】：现在改成了判定副手是否拿着小麦 (Items.WHEAT)！
+        ItemStack offhandItem = maid.maidAvatar.getHeldItemOffhand();
+        boolean isPeaceful = (!offhandItem.isEmpty() && offhandItem.getItem() == Items.WHEAT);
+        if (isPeaceful) return false;
+
         Block block = world.getBlockState(pos).getBlock();
         if (block != Blocks.GRASS && block != Blocks.DIRT) return false;
         if (!world.isAirBlock(pos.up())) return false;
-        for (EnumFacing facing : EnumFacing.HORIZONTALS) {
-            if (world.getBlockState(pos.offset(facing)).getBlock() == Blocks.FARMLAND) return true;
-        }
-        return false;
+        
+        // 【水源限制】：以水为中心向外扩4格
+        if (!isBlockWatered(world, pos)) return false;
+
+        return true;
     }
 
     private boolean isFarmedLand(World world, BlockPos pos, ItemStack seedStack) {
