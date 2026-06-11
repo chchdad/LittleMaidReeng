@@ -33,7 +33,7 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 /**
- * メイドの土産 (在手捏碎超度 + 强制视距寻主光柱 + 真实岩浆悬浮版)
+ * メイドの土産 (在手捏碎超度 + 强制发光轮廓 + 恶魂式岩浆悬浮)
  */
 public class LMItemMaidSouvenir extends Item {
 
@@ -121,7 +121,6 @@ public class LMItemMaidSouvenir extends Item {
 					
 					stack.setCount(0); 
 				} else {
-					// 修复 1：修正了 SoundCategory 的包名路径
 					world.playSound(null, player.posX, player.posY, player.posZ, 
 							net.minecraft.init.SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 
 							net.minecraft.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
@@ -180,24 +179,23 @@ public class LMItemMaidSouvenir extends Item {
     }
 
     // ====================================================================
-    // 专属不死实体类 (光柱无视视距强制渲染 + 真实岩浆Bobbing悬浮 + 不朽 + 虚空转生)
+    // 专属不死实体类 (药水发光轮廓 + 恶魂式岩浆悬浮 + 不朽 + 虚空转生)
     // ====================================================================
     public static class EntityItemMaidSouvenir extends EntityItem {
         
         public EntityItemMaidSouvenir(World worldIn, double x, double y, double z, ItemStack stack) {
             super(worldIn, x, y, z, stack);
-            // 修复 2：移除了私有变量 renderDistanceWeight 的访问
         }
 
         public EntityItemMaidSouvenir(World worldIn) {
             super(worldIn);
         }
         
-        // 修复 3：通过重写 isInRangeToRenderDist 方法，彻底解除实体的视距渲染限制
+        // 解除视距渲染限制，保证无论多远，发光轮廓都能被客户端渲染
         @Override
         @SideOnly(Side.CLIENT)
         public boolean isInRangeToRenderDist(double distance) {
-            return true; // 强制在任何距离下都保持实体渲染状态，配合光柱效果
+            return true; 
         }
 
         private boolean hasValidOwner() {
@@ -213,48 +211,47 @@ public class LMItemMaidSouvenir extends Item {
                 this.isImmuneToFire = true;
                 this.lifespan = Integer.MAX_VALUE; 
                 
-                // 【岩浆真实悬浮系统】：直接对抗重力引擎
-                if (this.isInLava()) {
-                    // 提供稳定的向上浮力，原版会每 Tick -0.04D，我们直接覆盖为正数
-                    this.motionY = 0.05D;
-                    // 水平方向增加强大阻力，防止乱飘
-                    this.motionX *= 0.8D;
-                    this.motionZ *= 0.8D;
+                // 【发光效果系统】：赋予原版实体高亮（Glowing）效果
+                if (!this.isGlowing()) {
+                    this.setGlowing(true);
                 }
 
-                // 【远程寻主光柱系统】
-                if (this.world.isRemote) {
-                    spawnBeaconParticles();
+                // 【恶魂式岩浆悬浮系统】
+                if (this.isInLava()) {
+                    // 如果不小心没入岩浆内部，快速上升出岩浆表面
+                    this.motionY = 0.2D;
+                    this.motionX *= 0.8D;
+                    this.motionZ *= 0.8D;
+                } else {
+                    // 向下扫描 1~4 格，判断下方是否有岩浆
+                    boolean overLava = false;
+                    BlockPos currentPos = new BlockPos(this);
+                    for (int i = 1; i <= 4; i++) {
+                        if (this.world.getBlockState(currentPos.down(i)).getMaterial() == net.minecraft.block.material.Material.LAVA) {
+                            overLava = true;
+                            break;
+                        }
+                    }
+
+                    if (overLava) {
+                        // 原版 EntityItem 每 Tick 会有 -0.04D 的重力加速度，这里加上 0.04D 完全抵消重力
+                        this.motionY += 0.04D;
+                        
+                        // 加入基于存活时间的缓动正弦波，实现类似恶魂的平滑“呼吸”悬浮感
+                        this.motionY += Math.sin(this.ticksExisted * 0.05D) * 0.015D;
+                        
+                        // 增加水平空气阻力，防止它在悬浮时被外力（如水流或其他实体）撞飞太远
+                        this.motionX *= 0.9D;
+                        this.motionZ *= 0.9D;
+                    }
                 }
             } else {
                 this.isImmuneToFire = false;
+                if (this.isGlowing() && !LMRConfig.cfg_general_item_glowing) {
+                    this.setGlowing(false);
+                }
             }
         }
-
-		@SideOnly(Side.CLIENT)
-		private void spawnBeaconParticles() {
-			net.minecraft.client.entity.EntityPlayerSP clientPlayer = net.minecraft.client.Minecraft.getMinecraft().player;
-			if (clientPlayer != null) {
-				String ownerTarget = this.getItem().getTagCompound().getString("maid_owner");
-				
-				// 判定主人，并且距离大于 8 格 (64.0D 平方) 时触发
-				if ((clientPlayer.getUniqueID().toString().equals(ownerTarget) || clientPlayer.getName().equals(ownerTarget)) 
-					&& this.getDistanceSq(clientPlayer) > 64.0D) {
-					
-					// 增加粒子密度，生成极其显眼的粉紫色光束
-					for (int i = 0; i < 8; i++) {
-						double pY = this.posY + (this.world.rand.nextDouble() * 30.0D);
-						
-						// 第二个参数设为 true，告诉引擎忽略视距，强制渲染这束光！
-						this.world.spawnParticle(net.minecraft.util.EnumParticleTypes.SPELL_MOB, true, 
-							this.posX + (this.world.rand.nextDouble() - 0.5D) * 0.1D, 
-							pY, 
-							this.posZ + (this.world.rand.nextDouble() - 0.5D) * 0.1D, 
-							1.0D, 0.3D, 0.9D);
-					}
-				}
-			}
-		}
 
         @Override
         public boolean attackEntityFrom(DamageSource source, float amount) {
