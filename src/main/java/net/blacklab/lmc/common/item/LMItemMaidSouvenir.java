@@ -33,7 +33,7 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 /**
- * メイドの土産 (在手捏碎超度 + 寻主光柱 + 岩浆悬浮版)
+ * メイドの土産 (在手捏碎超度 + 强制视距寻主光柱 + 真实岩浆悬浮版)
  */
 public class LMItemMaidSouvenir extends Item {
 
@@ -41,9 +41,6 @@ public class LMItemMaidSouvenir extends Item {
 		this.setMaxStackSize(1);
 	}
 
-	/**
-	 * 拦截对空气右键（用于在空中捏碎遗物）
-	 */
 	@Override
 	public ActionResult<ItemStack> onItemRightClick(World worldIn, EntityPlayer playerIn, EnumHand handIn) {
 		ItemStack stack = playerIn.getHeldItem(handIn);
@@ -54,20 +51,15 @@ public class LMItemMaidSouvenir extends Item {
 		return new ActionResult<>(EnumActionResult.PASS, stack);
 	}
 
-	/**
-	 * 拦截对地面右键（用于放置女仆 或 拦截捏碎动作）
-	 */
 	@Override
 	public EnumActionResult onItemUse(EntityPlayer player, World worldIn, BlockPos pos, EnumHand hand, EnumFacing facing, float hitX, float hitY, float hitZ) {
 		ItemStack stack = player.getHeldItem(hand);
 		
-		// 如果玩家处于潜行状态，拦截放置动作，转为捏碎逻辑！
 		if (player.isSneaking() && hand == EnumHand.MAIN_HAND) {
 			handleCrush(stack, player, worldIn);
 			return EnumActionResult.SUCCESS; 
 		}
 		
-		// 正常的放置女仆逻辑
 		if (!stack.isEmpty() && stack.getItem() == LMItems.MAID_SOUVENIR && stack.hasTagCompound()) {
 			BlockPos position = pos.offset(facing);
 			Entity entity = LittleMaidHelper.spawnEntityFromItemStack(stack, worldIn, position.getX() + 0.5, position.getY(), position.getZ() + 0.5);
@@ -85,40 +77,33 @@ public class LMItemMaidSouvenir extends Item {
         return EnumActionResult.PASS;
     }
 
-	/**
-	 * 【核心操作：拿在手里捏碎超度的逻辑】
-	 */
 	private void handleCrush(ItemStack stack, EntityPlayer player, World world) {
-		if (world.isRemote) return; // 仅在服务端执行运算
+		if (world.isRemote) return;
 
 		if (stack.hasTagCompound() && stack.getTagCompound().hasKey("maid_owner")) {
 			String ownerTarget = stack.getTagCompound().getString("maid_owner");
 			
 			if (player.getUniqueID().toString().equals(ownerTarget) || player.getName().equals(ownerTarget)) {
 				
-				long currentTime = world.getTotalWorldTime(); // 获取世界绝对时间（Tick）
+				long currentTime = world.getTotalWorldTime();
 				NBTTagCompound nbt = stack.getTagCompound();
 				long lastTime = nbt.getLong("lmr_crush_time");
 				int progress = nbt.getInteger("lmr_crush_progress");
 
-				// 1. 【限时重置系统】：距离上次点击超过 10 秒 (200 Ticks)，进度清零
 				if (progress > 0 && (currentTime - lastTime > 200)) {
 					progress = 0;
 					player.sendMessage(new net.minecraft.util.text.TextComponentString("§e[系统] 销毁操作超时，进度已重置。"));
 				}
 
-				// 2. 【防连点系统】：间隔小于 0.5 秒 (10 Ticks) 的点击直接无视
 				if (progress > 0 && (currentTime - lastTime < 10)) {
 					return; 
 				}
 
-				// 更新进度与时间
 				progress++;
 				nbt.setLong("lmr_crush_time", currentTime);
 				nbt.setInteger("lmr_crush_progress", progress);
 
 				if (progress >= 3) {
-					// 彻底销毁
 					world.playSound(null, player.posX, player.posY, player.posZ, 
 							net.minecraft.init.SoundEvents.BLOCK_GLASS_BREAK, 
 							net.minecraft.util.SoundCategory.PLAYERS, 1.0F, 0.5F);
@@ -134,12 +119,11 @@ public class LMItemMaidSouvenir extends Item {
 					doneMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.DARK_GRAY);
 					player.sendMessage(doneMsg);
 					
-					stack.setCount(0); // 清空手里的物品
+					stack.setCount(0); 
 				} else {
-					// 发出警告
 					world.playSound(null, player.posX, player.posY, player.posZ, 
 							net.minecraft.init.SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 
-							net.minecraft.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
+							net.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
 					
 					int leftClicks = 3 - progress;
 					net.minecraft.util.text.TextComponentTranslation warnMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_warning", leftClicks);
@@ -195,16 +179,18 @@ public class LMItemMaidSouvenir extends Item {
     }
 
     // ====================================================================
-    // 专属不死实体类 (动态特权版：光柱 + 悬浮 + 不朽 + 虚空转生)
+    // 专属不死实体类 (光柱无视视距强制渲染 + 真实岩浆Bobbing悬浮 + 不朽 + 虚空转生)
     // ====================================================================
     public static class EntityItemMaidSouvenir extends EntityItem {
         
         public EntityItemMaidSouvenir(World worldIn, double x, double y, double z, ItemStack stack) {
             super(worldIn, x, y, z, stack);
+            this.renderDistanceWeight = 10.0D; // 【关键修改】：成倍放大实体渲染剔除距离，防止实体本身被提早卸载
         }
 
         public EntityItemMaidSouvenir(World worldIn) {
             super(worldIn);
+            this.renderDistanceWeight = 10.0D;
         }
 
         private boolean hasValidOwner() {
@@ -220,21 +206,16 @@ public class LMItemMaidSouvenir extends Item {
                 this.isImmuneToFire = true;
                 this.lifespan = Integer.MAX_VALUE; 
                 
-                // 【岩浆平稳漂浮系统，拒绝跳跳虎】
+                // 【岩浆真实悬浮系统】：直接对抗重力引擎
                 if (this.isInLava()) {
-                    this.motionX *= 0.5D;
-                    this.motionZ *= 0.5D;
-                    
-                    // 动态调整浮力：控制在刚好露出岩浆表面的高度悬停
-                    double surfaceY = Math.floor(this.posY) + 0.85D;
-                    if (this.posY < surfaceY) {
-                        this.motionY = 0.02D; // 缓慢上升
-                    } else {
-                        this.motionY = 0.0D;  // 抵达表面，稳如泰山
-                    }
+                    // 提供稳定的向上浮力，原版会每 Tick -0.04D，我们直接覆盖为正数
+                    this.motionY = 0.05D;
+                    // 水平方向增加强大阻力，防止乱飘
+                    this.motionX *= 0.8D;
+                    this.motionZ *= 0.8D;
                 }
 
-                // 【远程寻主光柱系统】(仅在客户端渲染，绝对安全)
+                // 【远程寻主光柱系统】
                 if (this.world.isRemote) {
                     spawnBeaconParticles();
                 }
@@ -243,26 +224,25 @@ public class LMItemMaidSouvenir extends Item {
             }
         }
 
-		// 独立的客户端渲染方法，防止服务器崩溃
 		@SideOnly(Side.CLIENT)
 		private void spawnBeaconParticles() {
 			net.minecraft.client.entity.EntityPlayerSP clientPlayer = net.minecraft.client.Minecraft.getMinecraft().player;
 			if (clientPlayer != null) {
 				String ownerTarget = this.getItem().getTagCompound().getString("maid_owner");
 				
-				// 确认玩家是主人，并且距离遗物超过 10 格 (距离平方 > 100) 才显示光柱
+				// 判定主人，并且距离大于 8 格 (64.0D 平方) 时触发
 				if ((clientPlayer.getUniqueID().toString().equals(ownerTarget) || clientPlayer.getName().equals(ownerTarget)) 
-					&& this.getDistanceSq(clientPlayer) > 100.0D) {
+					&& this.getDistanceSq(clientPlayer) > 64.0D) {
 					
-					// 制造粉紫色魔法光柱：每帧在上方 0~30 格的高度随机生成数个粒子
-					for (int i = 0; i < 3; i++) {
+					// 增加粒子密度，生成极其显眼的粉紫色光束
+					for (int i = 0; i < 8; i++) {
 						double pY = this.posY + (this.world.rand.nextDouble() * 30.0D);
-						// SPELL_MOB 粒子的 motion 参数代表 RGB 颜色
-						// R=1.0, G=0.3, B=0.9 (粉紫色，绝不跟原版信标混淆)
-						this.world.spawnParticle(net.minecraft.util.EnumParticleTypes.SPELL_MOB, 
-							this.posX + (this.world.rand.nextDouble() - 0.5D) * 0.2D, 
+						
+						// 【关键修改】：第二个参数设为 true，告诉引擎忽略视距，强制渲染这束光！
+						this.world.spawnParticle(net.minecraft.util.EnumParticleTypes.SPELL_MOB, true, 
+							this.posX + (this.world.rand.nextDouble() - 0.5D) * 0.1D, 
 							pY, 
-							this.posZ + (this.world.rand.nextDouble() - 0.5D) * 0.2D, 
+							this.posZ + (this.world.rand.nextDouble() - 0.5D) * 0.1D, 
 							1.0D, 0.3D, 0.9D);
 					}
 				}
