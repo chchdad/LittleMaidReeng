@@ -24,31 +24,8 @@ jobs:
     - name: Grant Execute Permission for Gradlew
       run: chmod +x gradlew
 
-    - name: 🔍 探查女仆模组(LMR)的【农夫模式】工作逻辑
-      run: |
-          echo "====================================================="
-          echo "🔍 1. 查看农夫如何判断作物是否成熟 (Harvest 逻辑)"
-          echo "====================================================="
-          # 搜索与农作物生长阶段(AGE)、或者成熟判断(isMaxAge/isMature)相关的代码
-          grep -rnC 8 "AGE" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到 AGE 状态"
-          grep -rnC 8 "isMaxAge" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到成熟判断"
-          
-          echo "====================================================="
-          echo "🔍 2. 查看农夫如何识别种子和可种植的方块 (Plant 逻辑)"
-          echo "====================================================="
-          # 搜索 IPlantable 接口，这是 Forge 判断物品是否为种子的标准
-          grep -rnC 6 "IPlantable" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到 IPlantable"
-          
-          echo "====================================================="
-          echo "🔍 3. 偷窥农夫的“右键使用”逻辑 (播种与锄地)"
-          echo "====================================================="
-          # 看看女仆是如何模拟玩家右键使用锄头或种子的
-          grep -rnC 10 "ItemHoe" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到锄头逻辑"
-          grep -rnC 10 "onItemUse" src/main/java/net/blacklab/lmr/entity/littlemaid/mode/EntityMode_Farmer.java || echo "未找到右键使用逻辑"
-
-
-    #- name: Build with Gradle
-    #  run: ./gradlew build
+    - name: Build with Gradle
+      run: ./gradlew build
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
