@@ -44,9 +44,7 @@ public class EntityMode_Farmer extends EntityModeBase {
 	public static final String mtrigger_Hoe		= "Farmer:Hoe";
 	public static final String mtrigger_Seed 	= "Farmer:Seed";
 	public static final int WATER_RADIUS = 4;
-	private int clearCount = 0;
-	private BlockPos perceivedTarget = null;
-	private int actionCooldown = 0;
+
 
 
 	public EntityMode_Farmer(EntityLittleMaid pEntity) {
@@ -58,7 +56,7 @@ public class EntityMode_Farmer extends EntityModeBase {
 	public void init() {
 		ModeTriggerRegisterHelper.register(mmode_Farmer, mtrigger_Hoe);
 		//メイドモードをFarmerSeedで種を設定できるように想定
-		ModeTriggerRegisterHelper.register(mmode_Farmer + "Seed", mtrigger_Seed);
+		ModeTriggerRegisterHelper.register(mode_Farmer + "Seed", mtrigger_Seed);
 	}
 
 	@Override
