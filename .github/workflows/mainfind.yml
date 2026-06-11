@@ -1,0 +1,33 @@
+name: Find LMR Farming Logic Paths
+
+on: 
+  workflow_dispatch:
+
+jobs:
+  find_logic:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 检出当前仓库代码
+        uses: actions/checkout@v4
+
+      - name: 🔍 寻找农夫模式的核心文件与入口
+        run: |
+          echo "====================================================="
+          echo "📂 正在搜索女仆模式切换 (setMode) 与 mmode_Farmer："
+          echo "====================================================="
+          grep -rnw -E "mmode_Farmer|setMode" . --include="*.java" | head -n 15 || true
+
+      - name: 🔍 寻找那两个糟糕的泥土判定方法
+        run: |
+          echo "====================================================="
+          echo "📂 正在搜索 isFarmedLand 和 isUnfarmedLand 的具体位置："
+          echo "====================================================="
+          grep -rnw -E "isFarmedLand|isUnfarmedLand" . --include="*.java" || true
+
+      - name: 🔍 寻找工具掉耐久的地方
+        run: |
+          echo "====================================================="
+          echo "📂 正在搜索扣除锄头耐久 (damageItem) 的位置："
+          echo "====================================================="
+          grep -rn "damageItem" . --include="*.java" | grep -iE "farm|maid" || true
