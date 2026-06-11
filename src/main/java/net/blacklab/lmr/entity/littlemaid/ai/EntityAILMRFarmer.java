@@ -25,15 +25,18 @@ import java.util.List;
 
 public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private final EntityLittleMaid maid;
-    private final double moveSpeed; // 【修复处1】：自己声明一个速度变量
+    private final double moveSpeed;
     
     private int customScanDelay = 0;
     private boolean actionCompleted = false;
+    
+    // 【长臂猿核心】：记录女仆尝试走向目标花费的时间
+    private int stuckTicks = 0; 
 
     public EntityAILMRFarmer(EntityLittleMaid entityMaid, double speedIn) {
         super(entityMaid, speedIn, 16);
         this.maid = entityMaid;
-        this.moveSpeed = speedIn; // 【修复处2】：在构造器里把速度存下来
+        this.moveSpeed = speedIn;
         this.setMutexBits(3);
     }
 
@@ -75,11 +78,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 if (maid.getNavigator().getPathToPos(target.up()) != null || maid.getDistanceSqToCenter(target) < 4.5D) {
                     this.destinationBlock = target;
                     this.customScanDelay = 10 + maid.getRNG().nextInt(20);
-                    System.out.println("[LMR-FARM-DEBUG] 3D雷达锁定可达目标: " + target);
+                    System.out.println("[LMR-FARM-DEBUG] 3D雷达锁定目标: " + target);
                     
-                    // 【修复处3】：使用我们自己存下来的 moveSpeed 变量
                     maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.moveSpeed);
-                    
                     return true;
                 }
             }
@@ -93,6 +94,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     public void startExecuting() {
         super.startExecuting();
         this.actionCompleted = false; 
+        this.stuckTicks = 0; // 每次接到新任务，卡死计时器清零
     }
 
     @Override
@@ -132,13 +134,26 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         
         double dist = maid.getDistanceSqToCenter(this.destinationBlock);
         
+        // 【正常工作逻辑】：走到 4.5 范围内执行
         if (dist < 4.5D) {
-            System.out.println("[LMR-FARM-DEBUG] 抵达目标 " + this.destinationBlock + "，距离 " + dist + "，开始执行动作！");
+            System.out.println("[LMR-FARM-DEBUG] 抵达目标 " + this.destinationBlock + "，正常执行！");
             executeAction();
             this.actionCompleted = true;
             this.customScanDelay = 5; 
+            this.stuckTicks = 0;
         } else {
-            this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
+            // 【长臂猿原力模式】：走不到？没关系！
+            this.stuckTicks++;
+            if (this.stuckTicks > 60) { // 如果朝着这个方块走了 3 秒（60 Tick）还没走到
+                System.out.println("[LMR-FARM-DEBUG] 寻路超时卡死！启动长臂猿模式，隔空原力执行！");
+                executeAction(); // 无视原版距离判定，直接调用底层代码修改方块！
+                this.actionCompleted = true; // 强制完工
+                this.customScanDelay = 5; 
+                this.stuckTicks = 0;
+            } else {
+                // 如果还没超时，继续努力走
+                this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
+            }
         }
     }
 
@@ -179,7 +194,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 if (isFarmedLand(world, pos, seedStack)) {
                     int svCurrentIdx = maid.getDataWatchCurrentItem();
                     maid.maidInventory.setCurrentItemIndex(seedIndex);
+                    
+                    // 因为这里直接调用了物品底层的 onItemUse，它不查验距离，完美契合长臂猿模式
                     seedStack.onItemUse(maid.maidAvatar, world, pos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 1.0F, 0.5F);
+                    
                     maid.maidInventory.setCurrentItemIndex(svCurrentIdx);
                     maid.setSwing(10, EnumSound.FARMER_PLANT, false);
                     if (seedStack.getCount() <= 0) maid.maidInventory.setInventorySlotContents(seedIndex, ItemStack.EMPTY);
@@ -222,8 +240,17 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         Block block = world.getBlockState(pos).getBlock();
         if (block != Blocks.GRASS && block != Blocks.DIRT) return false;
         if (!world.isAirBlock(pos.up())) return false;
-        
         if (!isBlockWatered(world, pos)) return false;
+
+        // 【补回核心限制】：四周必须有现成的农田才允许开垦！
+        boolean hasAdjacentFarmland = false;
+        for (EnumFacing facing : EnumFacing.HORIZONTALS) {
+            if (world.getBlockState(pos.offset(facing)).getBlock() == Blocks.FARMLAND) {
+                hasAdjacentFarmland = true;
+                break;
+            }
+        }
+        if (!hasAdjacentFarmland) return false;
 
         return true;
     }
