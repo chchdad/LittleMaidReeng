@@ -18,6 +18,8 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.EnumRarity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.util.ActionResult;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.EnumActionResult;
 import net.minecraft.util.EnumFacing;
@@ -31,7 +33,7 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 /**
- * メイドの土産 (真·不朽绑定与主人超度版)
+ * メイドの土産 (在手捏碎超度 + 寻主光柱 + 岩浆悬浮版)
  */
 public class LMItemMaidSouvenir extends Item {
 
@@ -40,19 +42,35 @@ public class LMItemMaidSouvenir extends Item {
 	}
 
 	/**
-	 * メイドさんを生成する
+	 * 拦截对空气右键（用于在空中捏碎遗物）
+	 */
+	@Override
+	public ActionResult<ItemStack> onItemRightClick(World worldIn, EntityPlayer playerIn, EnumHand handIn) {
+		ItemStack stack = playerIn.getHeldItem(handIn);
+		if (playerIn.isSneaking() && handIn == EnumHand.MAIN_HAND) {
+			handleCrush(stack, playerIn, worldIn);
+			return new ActionResult<>(EnumActionResult.SUCCESS, stack);
+		}
+		return new ActionResult<>(EnumActionResult.PASS, stack);
+	}
+
+	/**
+	 * 拦截对地面右键（用于放置女仆 或 拦截捏碎动作）
 	 */
 	@Override
 	public EnumActionResult onItemUse(EntityPlayer player, World worldIn, BlockPos pos, EnumHand hand, EnumFacing facing, float hitX, float hitY, float hitZ) {
 		ItemStack stack = player.getHeldItem(hand);
 		
+		// 如果玩家处于潜行状态，拦截放置动作，转为捏碎逻辑！
+		if (player.isSneaking() && hand == EnumHand.MAIN_HAND) {
+			handleCrush(stack, player, worldIn);
+			return EnumActionResult.SUCCESS; 
+		}
+		
+		// 正常的放置女仆逻辑
 		if (!stack.isEmpty() && stack.getItem() == LMItems.MAID_SOUVENIR && stack.hasTagCompound()) {
 			BlockPos position = pos.offset(facing);
-			double x = position.getX() + 0.5;
-			double y = position.getY();
-			double z = position.getZ() + 0.5;
-			
-			Entity entity = LittleMaidHelper.spawnEntityFromItemStack(stack, worldIn, x, y, z);
+			Entity entity = LittleMaidHelper.spawnEntityFromItemStack(stack, worldIn, position.getX() + 0.5, position.getY(), position.getZ() + 0.5);
 			
 			if (entity != null) {
 				EntityLittleMaid maid = (EntityLittleMaid) entity;
@@ -66,12 +84,76 @@ public class LMItemMaidSouvenir extends Item {
 		}
         return EnumActionResult.PASS;
     }
+
+	/**
+	 * 【核心操作：拿在手里捏碎超度的逻辑】
+	 */
+	private void handleCrush(ItemStack stack, EntityPlayer player, World world) {
+		if (world.isRemote) return; // 仅在服务端执行运算
+
+		if (stack.hasTagCompound() && stack.getTagCompound().hasKey("maid_owner")) {
+			String ownerTarget = stack.getTagCompound().getString("maid_owner");
+			
+			if (player.getUniqueID().toString().equals(ownerTarget) || player.getName().equals(ownerTarget)) {
+				
+				long currentTime = world.getTotalWorldTime(); // 获取世界绝对时间（Tick）
+				NBTTagCompound nbt = stack.getTagCompound();
+				long lastTime = nbt.getLong("lmr_crush_time");
+				int progress = nbt.getInteger("lmr_crush_progress");
+
+				// 1. 【限时重置系统】：距离上次点击超过 10 秒 (200 Ticks)，进度清零
+				if (progress > 0 && (currentTime - lastTime > 200)) {
+					progress = 0;
+					player.sendMessage(new net.minecraft.util.text.TextComponentString("§e[系统] 销毁操作超时，进度已重置。"));
+				}
+
+				// 2. 【防连点系统】：间隔小于 0.5 秒 (10 Ticks) 的点击直接无视
+				if (progress > 0 && (currentTime - lastTime < 10)) {
+					return; 
+				}
+
+				// 更新进度与时间
+				progress++;
+				nbt.setLong("lmr_crush_time", currentTime);
+				nbt.setInteger("lmr_crush_progress", progress);
+
+				if (progress >= 3) {
+					// 彻底销毁
+					world.playSound(null, player.posX, player.posY, player.posZ, 
+							net.minecraft.init.SoundEvents.BLOCK_GLASS_BREAK, 
+							net.minecraft.util.SoundCategory.PLAYERS, 1.0F, 0.5F);
+					
+					if (world instanceof WorldServer) {
+						((WorldServer)world).spawnParticle(
+							net.minecraft.util.EnumParticleTypes.SMOKE_LARGE, 
+							player.posX, player.posY + 1.0D, player.posZ, 
+							25, 0.2D, 0.2D, 0.2D, 0.0D);
+					}
+					
+					net.minecraft.util.text.TextComponentTranslation doneMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_done");
+					doneMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.DARK_GRAY);
+					player.sendMessage(doneMsg);
+					
+					stack.setCount(0); // 清空手里的物品
+				} else {
+					// 发出警告
+					world.playSound(null, player.posX, player.posY, player.posZ, 
+							net.minecraft.init.SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 
+							net.minecraft.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
+					
+					int leftClicks = 3 - progress;
+					net.minecraft.util.text.TextComponentTranslation warnMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_warning", leftClicks);
+					warnMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.RED);
+					player.sendMessage(warnMsg);
+				}
+			}
+		}
+	}
 	
 	@Override
 	@SideOnly(Side.CLIENT)
     public void addInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
 		tooltip.add(TextFormatting.LIGHT_PURPLE + I18n.format("item.maid_souvenir.info"));
-		
 		if (stack.hasTagCompound()) {
 			if (stack.getTagCompound().hasKey("maid_owner")) {
 				tooltip.add("Owner : " + stack.getTagCompound().getString("maid_owner"));
@@ -95,7 +177,6 @@ public class LMItemMaidSouvenir extends Item {
 		entity.motionX = location.motionX;
 		entity.motionY = location.motionY;
 		entity.motionZ = location.motionZ;
-		
 		if (LMRConfig.cfg_general_item_glowing) {
 			entity.setGlowing(true);
 		}
@@ -114,13 +195,9 @@ public class LMItemMaidSouvenir extends Item {
     }
 
     // ====================================================================
-    // 专属不死实体类 (动态特权版：有主人则绝对不朽，无主人则普通物品)
+    // 专属不死实体类 (动态特权版：光柱 + 悬浮 + 不朽 + 虚空转生)
     // ====================================================================
     public static class EntityItemMaidSouvenir extends EntityItem {
-        
-        private int crushProgress = 0;
-        // 【新增】：记录上一次成功点击的时间戳（以实体存活的 Tick 为单位）
-        private int lastCrushTick = 0; 
         
         public EntityItemMaidSouvenir(World worldIn, double x, double y, double z, ItemStack stack) {
             super(worldIn, x, y, z, stack);
@@ -138,75 +215,59 @@ public class LMItemMaidSouvenir extends Item {
         @Override
         public void onUpdate() {
             super.onUpdate();
+            
             if (hasValidOwner()) {
                 this.isImmuneToFire = true;
                 this.lifespan = Integer.MAX_VALUE; 
+                
+                // 【岩浆平稳漂浮系统，拒绝跳跳虎】
+                if (this.isInLava()) {
+                    this.motionX *= 0.5D;
+                    this.motionZ *= 0.5D;
+                    
+                    // 动态调整浮力：控制在刚好露出岩浆表面的高度悬停
+                    double surfaceY = Math.floor(this.posY) + 0.85D;
+                    if (this.posY < surfaceY) {
+                        this.motionY = 0.02D; // 缓慢上升
+                    } else {
+                        this.motionY = 0.0D;  // 抵达表面，稳如泰山
+                    }
+                }
+
+                // 【远程寻主光柱系统】(仅在客户端渲染，绝对安全)
+                if (this.world.isRemote) {
+                    spawnBeaconParticles();
+                }
             } else {
                 this.isImmuneToFire = false;
             }
         }
 
-        @Override
-        public boolean processInitialInteract(EntityPlayer player, EnumHand hand) {
-            if (!this.world.isRemote && player.isSneaking() && hand == EnumHand.MAIN_HAND) {
-                ItemStack stack = this.getItem();
-                
-                if (stack.hasTagCompound() && stack.getTagCompound().hasKey("maid_owner")) {
-                    String ownerTarget = stack.getTagCompound().getString("maid_owner");
-                    
-                    if (player.getUniqueID().toString().equals(ownerTarget) || player.getName().equals(ownerTarget)) {
-                        
-                        int currentTick = this.ticksExisted;
-                        
-                        // 【限时重置系统】：如果距离上次点击超过 10 秒 (200 Ticks)，进度清零
-                        if (this.crushProgress > 0 && (currentTick - this.lastCrushTick > 200)) {
-                            this.crushProgress = 0;
-                            // 发送一条黄色的中断提示
-                            player.sendMessage(new net.minecraft.util.text.TextComponentString("§e[系统] 销毁操作超时，进度已重置。"));
-                        }
-                        
-                        // 【防长按/防连点系统】：如果两次有效点击间隔小于 0.5 秒 (10 Ticks)，直接拦截并无视
-                        if (this.crushProgress > 0 && (currentTick - this.lastCrushTick < 10)) {
-                            return true; 
-                        }
-                        
-                        // 记录本次有效点击的时间戳，并增加进度
-                        this.lastCrushTick = currentTick;
-                        this.crushProgress++;
-                        
-                        if (this.crushProgress >= 3) {
-                            this.world.playSound(null, this.posX, this.posY, this.posZ, 
-                                    net.minecraft.init.SoundEvents.BLOCK_GLASS_BREAK, 
-                                    net.minecraft.util.SoundCategory.PLAYERS, 1.0F, 0.5F);
-                            
-                            if (this.world instanceof WorldServer) {
-                                ((WorldServer)this.world).spawnParticle(
-                                    net.minecraft.util.EnumParticleTypes.SMOKE_LARGE, 
-                                    this.posX, this.posY + 0.5D, this.posZ, 
-                                    25, 0.2D, 0.2D, 0.2D, 0.0D);
-                            }
-                            
-                            net.minecraft.util.text.TextComponentTranslation doneMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_done");
-                            doneMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.DARK_GRAY);
-                            player.sendMessage(doneMsg);
-                            
-                            this.setDead();
-                        } else {
-                            this.world.playSound(null, this.posX, this.posY, this.posZ, 
-                                    net.minecraft.init.SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 
-                                    net.minecraft.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
-                            
-                            int leftClicks = 3 - this.crushProgress;
-                            net.minecraft.util.text.TextComponentTranslation warnMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_warning", leftClicks);
-                            warnMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.RED);
-                            player.sendMessage(warnMsg);
-                        }
-                        return true; 
-                    }
-                }
-            }
-            return super.processInitialInteract(player, hand);
-        }
+		// 独立的客户端渲染方法，防止服务器崩溃
+		@SideOnly(Side.CLIENT)
+		private void spawnBeaconParticles() {
+			net.minecraft.client.entity.EntityPlayerSP clientPlayer = net.minecraft.client.Minecraft.getMinecraft().player;
+			if (clientPlayer != null) {
+				String ownerTarget = this.getItem().getTagCompound().getString("maid_owner");
+				
+				// 确认玩家是主人，并且距离遗物超过 10 格 (距离平方 > 100) 才显示光柱
+				if ((clientPlayer.getUniqueID().toString().equals(ownerTarget) || clientPlayer.getName().equals(ownerTarget)) 
+					&& this.getDistanceSq(clientPlayer) > 100.0D) {
+					
+					// 制造粉紫色魔法光柱：每帧在上方 0~30 格的高度随机生成数个粒子
+					for (int i = 0; i < 3; i++) {
+						double pY = this.posY + (this.world.rand.nextDouble() * 30.0D);
+						// SPELL_MOB 粒子的 motion 参数代表 RGB 颜色
+						// R=1.0, G=0.3, B=0.9 (粉紫色，绝不跟原版信标混淆)
+						this.world.spawnParticle(net.minecraft.util.EnumParticleTypes.SPELL_MOB, 
+							this.posX + (this.world.rand.nextDouble() - 0.5D) * 0.2D, 
+							pY, 
+							this.posZ + (this.world.rand.nextDouble() - 0.5D) * 0.2D, 
+							1.0D, 0.3D, 0.9D);
+					}
+				}
+			}
+		}
 
         @Override
         public boolean attackEntityFrom(DamageSource source, float amount) {
@@ -226,7 +287,6 @@ public class LMItemMaidSouvenir extends Item {
                     WorldServer overworld = DimensionManager.getWorld(0);
                     if (overworld != null) {
                         BlockPos spawnPos = overworld.getSpawnPoint();
-                        
                         EntityItemMaidSouvenir safeItem = new EntityItemMaidSouvenir(
                             overworld, 
                             spawnPos.getX() + 0.5D, 
@@ -234,16 +294,13 @@ public class LMItemMaidSouvenir extends Item {
                             spawnPos.getZ() + 0.5D, 
                             this.getItem().copy() 
                         );
-                        
                         safeItem.motionX = 0; 
                         safeItem.motionY = 0; 
                         safeItem.motionZ = 0;
                         safeItem.setDefaultPickupDelay();
-                        
                         if (LMRConfig.cfg_general_item_glowing) {
                             safeItem.setGlowing(true);
                         }
-                        
                         overworld.spawnEntity(safeItem);
                     }
                     this.setDead();
