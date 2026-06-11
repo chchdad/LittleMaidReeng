@@ -25,6 +25,7 @@ import java.util.List;
 
 public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private final EntityLittleMaid maid;
+    private final double moveSpeed; // 【修复处1】：自己声明一个速度变量
     
     private int customScanDelay = 0;
     private boolean actionCompleted = false;
@@ -32,6 +33,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     public EntityAILMRFarmer(EntityLittleMaid entityMaid, double speedIn) {
         super(entityMaid, speedIn, 16);
         this.maid = entityMaid;
+        this.moveSpeed = speedIn; // 【修复处2】：在构造器里把速度存下来
         this.setMutexBits(3);
     }
 
@@ -50,13 +52,11 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             return false;
         }
 
-        // 【重构核心】：3D 全景雷达 + 预寻路验证
         List<BlockPos> validTargets = new ArrayList<>();
         BlockPos center = new BlockPos(maid);
         World world = maid.getEntityWorld();
         int range = 16;
 
-        // 1. 扫描周围 16x16，高度 ±2 的所有方块
         for (int x = -range; x <= range; x++) {
             for (int y = -2; y <= 2; y++) {
                 for (int z = -range; z <= range; z++) {
@@ -68,28 +68,23 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             }
         }
 
-        // 2. 距离排序与验证
         if (!validTargets.isEmpty()) {
-            // 按照距离从近到远排序
             validTargets.sort(Comparator.comparingDouble(p -> p.distanceSq(center)));
             
             for (BlockPos target : validTargets) {
-                // 【防卡死绝杀】：向目标方块的上方(up)进行预寻路。
-                // 如果能走通，或者本身就已经贴脸了，才锁定它！
                 if (maid.getNavigator().getPathToPos(target.up()) != null || maid.getDistanceSqToCenter(target) < 4.5D) {
                     this.destinationBlock = target;
                     this.customScanDelay = 10 + maid.getRNG().nextInt(20);
                     System.out.println("[LMR-FARM-DEBUG] 3D雷达锁定可达目标: " + target);
                     
-                    // 强制立刻发车，不再等原版的 40 tick 延迟
-                    maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.movementSpeed);
+                    // 【修复处3】：使用我们自己存下来的 moveSpeed 变量
+                    maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.moveSpeed);
                     
                     return true;
                 }
             }
         }
 
-        // 没找到或者全被墙挡死了，休息 1 秒再扫描
         this.customScanDelay = 20;
         return false;
     }
@@ -126,7 +121,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             }
         }
         
-        // 开垦荒地判定
         if (isUnfarmedLand(worldIn, pos)) return true;
 
         return false;
@@ -221,7 +215,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     }
 
     private boolean isUnfarmedLand(World world, BlockPos pos) {
-        // 【和平模式开关】：判断副手是否拿着小麦 (Items.WHEAT)！
         ItemStack offhandItem = maid.maidAvatar.getHeldItemOffhand();
         boolean isPeaceful = (!offhandItem.isEmpty() && offhandItem.getItem() == Items.WHEAT);
         if (isPeaceful) return false;
@@ -230,7 +223,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (block != Blocks.GRASS && block != Blocks.DIRT) return false;
         if (!world.isAirBlock(pos.up())) return false;
         
-        // 【水源限制】：必须在水能滋润到的范围内
         if (!isBlockWatered(world, pos)) return false;
 
         return true;
