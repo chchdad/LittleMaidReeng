@@ -30,7 +30,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         this.setMutexBits(3);
     }
 
-    @Override
+       @Override
     public boolean shouldExecute() {
         // 只有在 Farmer 模式下，且不在待命，且主手有东西才执行
         if (!EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) || maid.isMaidWait() || maid.getCurrentEquippedItem().isEmpty()) {
@@ -41,7 +41,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (maid.getOwner() != null && maid.getDistanceSq(maid.getOwner()) > 144.0D) {
             return false;
         }
+
+        return super.shouldExecute(); 
     }
+
 
     @Override
     public boolean shouldContinueExecuting() {
