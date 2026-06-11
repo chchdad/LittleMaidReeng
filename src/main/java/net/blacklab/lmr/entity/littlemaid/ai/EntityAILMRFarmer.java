@@ -41,14 +41,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (maid.getOwner() != null && maid.getDistanceSq(maid.getOwner()) > 144.0D) {
             return false;
         }
-
-        if (this.runDelay > 0) {
-            this.runDelay--;
-            return false;
-        }
-        this.runDelay = 10 + this.maid.getRNG().nextInt(20);
-
-        return this.searchForDestination(); // 底层自动遍历寻找
     }
 
     @Override
