@@ -70,7 +70,7 @@ public class EntityMode_Farmer extends EntityModeBase {
 		EntityAITasks[] ltasks = new EntityAITasks[2];
 		
 		// 像加模组一样，把我们的车万高级 AI 注入到底层移动容器中，优先级设为 5
-		pDefaultMove.addTask(5, new net.blacklab.lmr.entity.littlemaid.ai.EntityAILMRFarmer(owner, 0.6D));
+		pDefaultMove.addTask(5, new net.blacklab.lmr.entity.littlemaid.ai.EntityAILMRFarmer(owner, 1.2D));
 		
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = pDefaultTargeting;
