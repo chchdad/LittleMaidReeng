@@ -1,3 +1,184 @@
+package net.blacklab.lmc.common.item;
+
+import static net.blacklab.lmr.util.Statics.dataWatch_Flags_remainsContract;
+
+import java.util.List;
+
+import javax.annotation.Nullable;
+
+import net.blacklab.lmc.common.helper.LittleMaidHelper;
+import net.blacklab.lmr.LittleMaidReengaged.LMItems;
+import net.blacklab.lmr.config.LMRConfig;
+import net.blacklab.lmr.entity.littlemaid.EntityLittleMaid;
+import net.minecraft.client.resources.I18n;
+import net.minecraft.client.util.ITooltipFlag;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.item.EntityItem;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.EnumRarity;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.util.ActionResult;
+import net.minecraft.util.DamageSource;
+import net.minecraft.util.EnumActionResult;
+import net.minecraft.util.EnumFacing;
+import net.minecraft.util.EnumHand;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.text.TextFormatting;
+import net.minecraft.world.World;
+import net.minecraft.world.WorldServer;
+import net.minecraftforge.common.DimensionManager;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
+
+/**
+ * メイドの土産 (在手捏碎超度 + 强制发光 + 恶魂式真实岩浆悬浮修正版)
+ */
+public class LMItemMaidSouvenir extends Item {
+
+	public LMItemMaidSouvenir() {
+		this.setMaxStackSize(1);
+	}
+
+	@Override
+	public ActionResult<ItemStack> onItemRightClick(World worldIn, EntityPlayer playerIn, EnumHand handIn) {
+		ItemStack stack = playerIn.getHeldItem(handIn);
+		if (playerIn.isSneaking() && handIn == EnumHand.MAIN_HAND) {
+			handleCrush(stack, playerIn, worldIn);
+			return new ActionResult<>(EnumActionResult.SUCCESS, stack);
+		}
+		return new ActionResult<>(EnumActionResult.PASS, stack);
+	}
+
+	@Override
+	public EnumActionResult onItemUse(EntityPlayer player, World worldIn, BlockPos pos, EnumHand hand, EnumFacing facing, float hitX, float hitY, float hitZ) {
+		ItemStack stack = player.getHeldItem(hand);
+		
+		if (player.isSneaking() && hand == EnumHand.MAIN_HAND) {
+			handleCrush(stack, player, worldIn);
+			return EnumActionResult.SUCCESS; 
+		}
+		
+		if (!stack.isEmpty() && stack.getItem() == LMItems.MAID_SOUVENIR && stack.hasTagCompound()) {
+			BlockPos position = pos.offset(facing);
+			Entity entity = LittleMaidHelper.spawnEntityFromItemStack(stack, worldIn, position.getX() + 0.5, position.getY(), position.getZ() + 0.5);
+			
+			if (entity != null) {
+				EntityLittleMaid maid = (EntityLittleMaid) entity;
+				maid.clearMaidContractLimit();
+				maid.setMaidFlags(true, dataWatch_Flags_remainsContract);
+			}
+			
+			player.setHeldItem(hand, ItemStack.EMPTY);
+			player.getCooldownTracker().setCooldown(this, 20);
+			return EnumActionResult.SUCCESS;
+		}
+        return EnumActionResult.PASS;
+    }
+
+	private void handleCrush(ItemStack stack, EntityPlayer player, World world) {
+		if (world.isRemote) return;
+
+		if (stack.hasTagCompound() && stack.getTagCompound().hasKey("maid_owner")) {
+			String ownerTarget = stack.getTagCompound().getString("maid_owner");
+			
+			if (player.getUniqueID().toString().equals(ownerTarget) || player.getName().equals(ownerTarget)) {
+				
+				long currentTime = world.getTotalWorldTime();
+				NBTTagCompound nbt = stack.getTagCompound();
+				long lastTime = nbt.getLong("lmr_crush_time");
+				int progress = nbt.getInteger("lmr_crush_progress");
+
+				if (progress > 0 && (currentTime - lastTime > 200)) {
+					progress = 0;
+					player.sendMessage(new net.minecraft.util.text.TextComponentString("§e[系统] 销毁操作超时，进度已重置。"));
+				}
+
+				if (progress > 0 && (currentTime - lastTime < 10)) {
+					return; 
+				}
+
+				progress++;
+				nbt.setLong("lmr_crush_time", currentTime);
+				nbt.setInteger("lmr_crush_progress", progress);
+
+				if (progress >= 3) {
+					world.playSound(null, player.posX, player.posY, player.posZ, 
+							net.minecraft.init.SoundEvents.BLOCK_GLASS_BREAK, 
+							net.minecraft.util.SoundCategory.PLAYERS, 1.0F, 0.5F);
+					
+					if (world instanceof WorldServer) {
+						((WorldServer)world).spawnParticle(
+							net.minecraft.util.EnumParticleTypes.SMOKE_LARGE, 
+							player.posX, player.posY + 1.0D, player.posZ, 
+							25, 0.2D, 0.2D, 0.2D, 0.0D);
+					}
+					
+					net.minecraft.util.text.TextComponentTranslation doneMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_done");
+					doneMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.DARK_GRAY);
+					player.sendMessage(doneMsg);
+					
+					stack.setCount(0); 
+				} else {
+					world.playSound(null, player.posX, player.posY, player.posZ, 
+							net.minecraft.init.SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 
+							net.minecraft.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
+					
+					int leftClicks = 3 - progress;
+					net.minecraft.util.text.TextComponentTranslation warnMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_warning", leftClicks);
+					warnMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.RED);
+					player.sendMessage(warnMsg);
+				}
+			}
+		}
+	}
+	
+	@Override
+	@SideOnly(Side.CLIENT)
+    public void addInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
+		tooltip.add(TextFormatting.LIGHT_PURPLE + I18n.format("item.maid_souvenir.info"));
+		if (stack.hasTagCompound()) {
+			if (stack.getTagCompound().hasKey("maid_owner")) {
+				tooltip.add("Owner : " + stack.getTagCompound().getString("maid_owner"));
+			}
+			if (stack.getTagCompound().hasKey("maid_name")) {
+				tooltip.add("Maid : " + stack.getTagCompound().getString("maid_name"));
+			}
+		}
+    }
+	
+	@Override
+	public boolean hasCustomEntity(ItemStack stack) {
+		return true;
+	}
+	
+	@Override
+	@Nullable
+    public Entity createEntity(World world, Entity location, ItemStack itemstack) {
+		EntityItemMaidSouvenir entity = new EntityItemMaidSouvenir(world, location.posX, location.posY, location.posZ, itemstack);
+		entity.setDefaultPickupDelay();
+		entity.motionX = location.motionX;
+		entity.motionY = location.motionY;
+		entity.motionZ = location.motionZ;
+		if (LMRConfig.cfg_general_item_glowing) {
+			entity.setGlowing(true);
+		}
+        return entity;
+    }
+	
+	@Override
+	@SideOnly(Side.CLIENT)
+    public boolean hasEffect(ItemStack stack) {
+        return stack.hasTagCompound();
+    }
+	
+	@Override
+	public EnumRarity getRarity(ItemStack stack) {
+        return stack.hasTagCompound() ? EnumRarity.RARE : EnumRarity.COMMON;
+    }
+
+
     public static class EntityItemMaidSouvenir extends EntityItem {
         
         public EntityItemMaidSouvenir(World worldIn, double x, double y, double z, ItemStack stack) {
@@ -11,7 +192,7 @@
         @Override
         @SideOnly(Side.CLIENT)
         public boolean isInRangeToRenderDist(double distance) {
-            return true; // 强制渲染
+            return true; 
         }
 
         private boolean hasValidOwner() {
@@ -31,7 +212,6 @@
                     this.setGlowing(true);
                 }
 
-                // 探测自身以及下方 3 格内是否有岩浆
                 int lavaDistance = -1;
                 BlockPos currentPos = new BlockPos(this);
                 for (int i = 0; i <= 3; i++) {
@@ -42,31 +222,26 @@
                 }
 
                 if (lavaDistance >= 0 || this.isInLava()) {
-                    // 1. 彻底关闭原版重力，拔掉“蹦极”的根源
                     this.setNoGravity(true);
                     
-                    // 2. 空间阻尼刹车，防止被水冲走或被怪踢飞
                     this.motionX *= 0.8D;
                     this.motionZ *= 0.8D;
                     
-                    // 3. 神器自转效果 
                     this.rotationYaw = (this.rotationYaw + 3.0F) % 360.0F;
 
-                    // 4. 恶魂呼吸悬浮逻辑 (只给极其微弱的浮力/下压力调整高度)
                     double targetHoverY = Math.sin(this.ticksExisted * 0.1D) * 0.015D;
                     
                     if (this.isInLava() || lavaDistance == 0) {
-                        targetHoverY += 0.04D; // 淹没在岩浆里？温柔地推上来
+                        targetHoverY += 0.04D; 
                     } else if (lavaDistance == 1) {
-                        targetHoverY += 0.01D; // 稍微拉高点，保持 2 格最佳观赏高度
+                        targetHoverY += 0.01D; 
                     } else if (lavaDistance == 3) {
-                        targetHoverY -= 0.02D; // 飞太高了？缓缓降下来
+                        targetHoverY -= 0.02D; 
                     }
                     
                     this.motionY = targetHoverY;
                     
                 } else {
-                    // ====== 离开了岩浆区域，恢复正常物理引擎 ======
                     this.setNoGravity(false);
                 }
 
@@ -90,7 +265,6 @@
             return super.attackEntityFrom(source, amount);
         }
 
-        // 虚空防坠落逻辑保留
         @Override
         protected void outOfWorld() {
             if (hasValidOwner()) {
@@ -117,3 +291,4 @@
             }
         }
     }
+}
