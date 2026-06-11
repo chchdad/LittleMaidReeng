@@ -82,12 +82,15 @@ public class LivingDeathEventHandler {
 			
 			World world = entityLiving.getEntityWorld();
 			
-			//Drop用EntityItem
-			EntityItem entityMaidSouvenir = new EntityItem(world, 
-					entityLiving.posX, entityLiving.posY, entityLiving.posZ,
-					maidSouvenir);
-			entityMaidSouvenir.setDefaultPickupDelay();
-			world.spawnEntity(entityMaidSouvenir);
+// 直接生成自定义的不死跨界遗物
+                        net.blacklab.lmc.common.item.LMItemMaidSouvenir.EntityItemMaidSouvenir entityMaidSouvenir = 
+                            new net.blacklab.lmc.common.item.LMItemMaidSouvenir.EntityItemMaidSouvenir(
+                                world,
+                                entityLiving.posX, entityLiving.posY, entityLiving.posZ,
+                                maidSouvenir);
+                                
+                        entityMaidSouvenir.setDefaultPickupDelay();
+                        world.spawnEntity(entityMaidSouvenir);
 			
 			
 			//ClientSideの処理が動いてないみたいだからパケット飛ばしてパーティクルを発生させる
