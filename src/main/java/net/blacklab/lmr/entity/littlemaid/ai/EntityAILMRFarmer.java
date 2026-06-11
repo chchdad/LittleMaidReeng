@@ -250,13 +250,38 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         }
     }
 
-    private int getHadSeedIndex(){
-        for (int i=0; i < maid.maidInventory.getSizeInventory(); i++) {
-            ItemStack pStack = maid.maidInventory.getStackInSlot(i);
-            if (!pStack.isEmpty() && pStack.getItem() instanceof IPlantable) return i;
+    private int getHadSeedIndex() {
+        // 1. 获取背包第一格 (Slot 0) 的物品，判断它是不是箱子
+        ItemStack firstSlot = maid.maidInventory.getStackInSlot(0);
+        boolean isRandomMode = !firstSlot.isEmpty() && firstSlot.getItem() == net.minecraft.item.Item.getItemFromBlock(Blocks.CHEST);
+
+        if (isRandomMode) {
+            // ====== 模式 A：盲盒模式 (随机抽取种子) ======
+            List<Integer> availableSeedSlots = new ArrayList<>();
+            // 从下标 1 开始遍历，跳过第 0 格当开关的箱子
+            for (int i = 1; i < maid.maidInventory.getSizeInventory(); i++) {
+                ItemStack pStack = maid.maidInventory.getStackInSlot(i);
+                if (!pStack.isEmpty() && pStack.getItem() instanceof IPlantable) {
+                    availableSeedSlots.add(i);
+                }
+            }
+            // 如果找到至少一种种子，利用随机数返回其中一个格子的下标
+            if (!availableSeedSlots.isEmpty()) {
+                return availableSeedSlots.get(maid.getRNG().nextInt(availableSeedSlots.size()));
+            }
+        } else {
+            // ====== 模式 B：强迫症模式 (从左到右单一种植) ======
+            for (int i = 0; i < maid.maidInventory.getSizeInventory(); i++) {
+                ItemStack pStack = maid.maidInventory.getStackInSlot(i);
+                // 遇到第一个种子就直接返回，实现连片单一种植
+                if (!pStack.isEmpty() && pStack.getItem() instanceof IPlantable) return i;
+            }
         }
+        
+        // 如果背包里完全没种子，返回 -1
         return -1;
     }
+
 
     private boolean isBlockWatered(World world, BlockPos pos) {
         int radius = 4;
