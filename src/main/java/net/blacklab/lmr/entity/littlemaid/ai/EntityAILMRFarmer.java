@@ -143,10 +143,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         double dist = maid.getDistanceSqToCenter(this.destinationBlock);
 
         // 【智能二挡变速箱】：防鬼步滑行
-        if (dist > 16.0D) { // 大于 4 格的距离，全力冲刺
-            maid.getNavigator().setSpeed(this.moveSpeed);
-        } else {            // 进入 4 格内的微调范围，立刻切回老太太步行速度 (0.6D)，提供完美的行走动画
-            maid.getNavigator().setSpeed(0.6D);
+        if (dist > 16.0D) { // 16.0D 就是 4 格距离的平方
+            maid.getNavigator().setSpeed(1.2D); // 大于 4 格，1.2 倍速冲刺！
+        } else {            
+            maid.getNavigator().setSpeed(1.0D); // 进入 4 格内，平滑降速到 1.0 标准步速微调
         }
         
         // 走到 4.5 范围内执行
