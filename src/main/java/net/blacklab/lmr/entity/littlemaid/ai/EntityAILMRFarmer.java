@@ -82,6 +82,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     this.customScanDelay = 10 + maid.getRNG().nextInt(20);
                     System.out.println("[LMR-FARM-DEBUG] 3D雷达锁定目标: " + target);
                     
+                    // 启动时默认给高速档
                     maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.moveSpeed);
                     return true;
                 }
@@ -97,7 +98,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         super.startExecuting();
         this.actionCompleted = false; 
         
-        // 任务开始时，记录初始坐标，清空卡死计数器
         this.lastPosX = maid.posX;
         this.lastPosY = maid.posY;
         this.lastPosZ = maid.posZ;
@@ -141,40 +141,52 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         super.updateTask();
         
         double dist = maid.getDistanceSqToCenter(this.destinationBlock);
+
+        // 【智能二挡变速箱】：防鬼步滑行
+        if (dist > 16.0D) { // 大于 4 格的距离，全力冲刺
+            maid.getNavigator().setSpeed(this.moveSpeed);
+        } else {            // 进入 4 格内的微调范围，立刻切回老太太步行速度 (0.6D)，提供完美的行走动画
+            maid.getNavigator().setSpeed(0.6D);
+        }
         
-        // 【正常工作逻辑】：走到 4.5 范围内执行
+        // 走到 4.5 范围内执行
         if (dist < 4.5D) {
             System.out.println("[LMR-FARM-DEBUG] 抵达目标 " + this.destinationBlock + "，正常执行！");
             executeAction();
             this.actionCompleted = true;
             this.customScanDelay = 5; 
+            this.realStuckCount = 0; // 重置
         } else {
-            // 【物理防卡死检测】
+            // 【硬核物理防卡死检测】
             this.checkStuckTimer++;
-            if (this.checkStuckTimer >= 20) { // 每 20 Tick (1秒) 检查一次位移
-                double movedSq = maid.getDistanceSq(lastPosX, lastPosY, lastPosZ);
+            if (this.checkStuckTimer >= 20) { // 每 1 秒检查一次位移
                 
-                // 如果这一秒内，移动的距离不到 0.22 格 (平方约0.05)，说明撞墙或者卡住了
-                if (movedSq < 0.05D) {
+                // 【核心修改】：彻底无视 Y 轴跳跃，只算 X 和 Z 的水平直线距离！
+                double dX = maid.posX - this.lastPosX;
+                double dZ = maid.posZ - this.lastPosZ;
+                double movedHorizontalSq = (dX * dX) + (dZ * dZ);
+                
+                // 如果水平移动微乎其微 (距离不到 0.22 格)，说明在原地跳脚死磕
+                if (movedHorizontalSq < 0.05D) {
                     this.realStuckCount++;
+                    System.out.println("[LMR-FARM-DEBUG] 发现原地跳脚，卡死警告等级: " + this.realStuckCount);
                 } else {
-                    // 如果正在稳步前进，立马清零卡死计数器！
+                    // 如果在走动，清零卡死警告
                     this.realStuckCount = 0;
                 }
                 
-                // 更新记录的位置
                 this.lastPosX = maid.posX;
-                this.lastPosY = maid.posY;
+                this.lastPosY = maid.posY; // 虽然更新 Y，但不参与计算
                 this.lastPosZ = maid.posZ;
                 this.checkStuckTimer = 0;
                 
-                // 只有连续 3 次（即连续 3 秒）都没挪动步子，才触发长臂猿模式
+                // 连续 3 秒水平方向没走出半步
                 if (this.realStuckCount >= 3) {
-                    System.out.println("[LMR-FARM-DEBUG] 物理坐标监测到卡死！启动长臂猿原力模式！");
+                    System.out.println("[LMR-FARM-DEBUG] 水平位移监测确认卡死！启动长臂猿原力模式！");
                     executeAction();
                     this.actionCompleted = true;
                     this.customScanDelay = 5; 
-                    return; // 强制结束本次更新
+                    return; 
                 }
             }
 
@@ -284,4 +296,4 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         IPlantable seed = (IPlantable) seedStack.getItem();
         return soil.getBlock().canSustainPlant(soil, world, pos, EnumFacing.UP, seed);
     }
-}
+                }
