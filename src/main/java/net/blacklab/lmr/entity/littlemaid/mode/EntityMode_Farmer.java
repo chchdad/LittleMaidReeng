@@ -43,6 +43,9 @@ public class EntityMode_Farmer extends EntityModeBase {
 	public static final String mtrigger_Seed 	= "Farmer:Seed";
 	public static final int WATER_RADIUS = 4;
 	private int clearCount = 0;
+	private BlockPos perceivedTarget = null;
+	private int actionCooldown = 0;
+
 
 	public EntityMode_Farmer(EntityLittleMaid pEntity) {
 		super(pEntity);
