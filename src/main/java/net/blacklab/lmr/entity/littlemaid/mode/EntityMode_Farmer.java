@@ -346,7 +346,7 @@ public class EntityMode_Farmer extends EntityModeBase {
 		}
 	}
 
-	@Override
+		@Override
 	public void updateAITick(String pMode) {
 		if (!pMode.equals(mmode_Farmer)) return;
 
@@ -365,7 +365,7 @@ public class EntityMode_Farmer extends EntityModeBase {
 
 		World world = owner.getEntityWorld();
 
-		// 2. 【展开感知域】：每 10 Tick 释放一次雷达，直接获取最近目标
+		// 2. 每 10 Tick 释放一次雷达，直接获取最近目标
 		if (perceivedTarget == null && owner.ticksExisted % 10 == 0) {
 			List<BlockPos> radar = new ArrayList<>();
 			ItemStack offhandItem = owner.maidAvatar.getHeldItemOffhand();
@@ -419,36 +419,31 @@ public class EntityMode_Farmer extends EntityModeBase {
 			double dist = owner.getDistanceSqToCenter(perceivedTarget);
 
 			if (dist > 4.5D) {
-				// 距离大于2格，命令寻路系统走过去
-				owner.getNavigator().tryMoveToXYZ(perceivedTarget.getX(), perceivedTarget.getY(), perceivedTarget.getZ(), 0.6D);
+				// 每 20 Tick (1秒) 才重新发送一次寻路指令，防止寻路引擎卡死
+				if (owner.ticksExisted % 20 == 0) {
+					owner.getNavigator().tryMoveToXYZ(perceivedTarget.getX(), perceivedTarget.getY(), perceivedTarget.getZ(), 0.6D);
+				}
 				
-				// 如果被障碍物卡住，果断放弃这个目标，下一次重新感知
+				// 如果走不到（被卡住），果断放弃，强制进入 20 Tick 的长冷却
 				if (owner.getNavigator().noPath() && dist > 5.0D) {
 					perceivedTarget = null;
 					actionCooldown = 20; 
 				}
 			} else {
-				// 距离够近，立刻停下并执行手部操作！
+				// 距离够近（到达目的地），立刻停下！
 				owner.getNavigator().clearPath();
-				executePerceivedAction(world, perceivedTarget); // 调用下面的新方法
-				perceivedTarget = null; // 目标处理完毕，清空脑海
-				actionCooldown = 10; // 休息半秒，模拟干活后摇
+				
+				// 执行手部操作
+				executePerceivedAction(world, perceivedTarget); 
+				
+				// 执行完毕后，强制清空大脑目标，必须进入冷却！
+				perceivedTarget = null; 
+				actionCooldown = 5; // 强制休息 5 Tick，防止原地疯狂挥锄头
 			}
 		}
 	}
 
-
-	protected int getHadSeedIndex(){
-		for (int i=0; i < owner.maidInventory.getSizeInventory(); i++) {
-			ItemStack pStack;
-			if (!(pStack = owner.maidInventory.getStackInSlot(i)).isEmpty() &&
-					this.isTriggerItemSeed(pStack)) {
-				return i;
-			}
-		}
-		return -1;
-	}
-		private void executePerceivedAction(World world, BlockPos pos) {
+	private void executePerceivedAction(World world, BlockPos pos) {
 		IBlockState state = world.getBlockState(pos);
 		Block block = state.getBlock();
 		ItemStack curStack = owner.getCurrentEquippedItem();
@@ -490,7 +485,7 @@ public class EntityMode_Farmer extends EntityModeBase {
 			int seedIndex = getHadSeedIndex();
 			if (seedIndex != -1) {
 				ItemStack seedStack = owner.maidInventory.getStackInSlot(seedIndex);
-				if (isFarmedLand(pos.getX(), pos.getY(), pos.getZ(), seedStack)) { // 修复了种地判定Bug
+				if (isFarmedLand(pos.getX(), pos.getY(), pos.getZ(), seedStack)) { 
 					int svCurrentIdx = owner.getDataWatchCurrentItem();
 					owner.maidInventory.setCurrentItemIndex(seedIndex);
 					
@@ -517,6 +512,16 @@ public class EntityMode_Farmer extends EntityModeBase {
 		}
 	}
 
+	protected int getHadSeedIndex(){
+		for (int i=0; i < owner.maidInventory.getSizeInventory(); i++) {
+			ItemStack pStack;
+			if (!(pStack = owner.maidInventory.getStackInSlot(i)).isEmpty() &&
+					this.isTriggerItemSeed(pStack)) {
+				return i;
+			}
+		}
+		return -1;
+	}
 
 	// 替换原来的 isUnfarmedLand (防卡死与野外乱开垦)
 	protected boolean isUnfarmedLand(int x, int y, int z) {
@@ -543,21 +548,19 @@ public class EntityMode_Farmer extends EntityModeBase {
 		return false;
 	}
 
-
-		// 替换原来的 isFarmedLand (修复种地判定)
+	// 替换原来的 isFarmedLand (修复种地判定)
 	protected boolean isFarmedLand(int x, int y, int z, ItemStack seedStack) {
 		if (seedStack.isEmpty() || !(seedStack.getItem() instanceof IPlantable)) return false;
 		BlockPos pos = new BlockPos(x, y, z);
 		World world = owner.getEntityWorld();
 		
-		// 【修复关键点】直接获取当前的方块(耕地)，而不是 pos.down()
+		// 直接获取当前的方块(耕地)，而不是 pos.down()
 		IBlockState soil = world.getBlockState(pos); 
 		IPlantable seed = (IPlantable) seedStack.getItem();
 		
 		// 问游戏引擎：这块耕地(soil)能种这颗种子吗？
 		return soil.getBlock().canSustainPlant(soil, world, pos, EnumFacing.UP, seed);
 	}
-
 
 	protected boolean isCropGrown(int x, int y, int z){
 		BlockPos position = new BlockPos(x, y, z);
@@ -573,14 +576,11 @@ public class EntityMode_Farmer extends EntityModeBase {
 
 	@SuppressWarnings("rawtypes")
 	protected boolean isBlockWatered(int x, int y, int z){
-		// 雨天時は検索範囲を制限
-		//boolean flag = owner.getEntityWorld().isRaining();
 		BlockPos pos = new BlockPos(x,y,z);
 		Iterator iterator = BlockPos.getAllInBoxMutable(pos.add(-WATER_RADIUS, 0, -WATER_RADIUS),
 				pos.add(WATER_RADIUS, 1, WATER_RADIUS)).iterator();
 		BlockPos.MutableBlockPos mutableblockpos;
 
-		//IBlockState iState;
 		do
 		{
 			if (!iterator.hasNext())
@@ -590,37 +590,18 @@ public class EntityMode_Farmer extends EntityModeBase {
 
 			mutableblockpos = (BlockPos.MutableBlockPos)iterator.next();
 		}
-		//while ((iState = owner.getEntityWorld().getBlockState(mutableblockpos)).getMaterial() != Material.WATER);
 		while ((owner.getEntityWorld().getBlockState(mutableblockpos)).getMaterial() != Material.WATER);
 
 		return true;
 	}
 	
-	
-	/**
-	 * ブロック操作系の職業メイドさんでブラックリストブロックを管理する
-	 */
 	public static class checkBlockBlackListManager {
 		
-		//作業対象外とするまでの時間（Tickではないみたい）
 		private final int graceTime = 40;
-		
-		//作業対象外座標のリセット時間(600秒)
 		private final int allResetTimeTick = 12000;
-		
-		/**
-		 * 一定時間にリセットする
-		 */
 		private Map<BlockPos, Integer> checkBlockBlackList = new HashMap<>();
-		
-		/**
-		 * ブラックリストをリセットタイマー
-		 */
 		private int resetCountTimer = allResetTimeTick;
 		
-		/**
-		 * 対象の座標が処理対象外か確認する
-		 */
 		public boolean isBlackList(int x, int y, int z) {
 			BlockPos pos = new BlockPos(x, y, z);
 			if (checkBlockBlackList.containsKey(pos)) {
@@ -632,10 +613,6 @@ public class EntityMode_Farmer extends EntityModeBase {
 			return false;
 		}
 		
-		/**
-		 * ブラックリスト用のカウントダウン
-		 * 0になるとisBlackListがtrueになる
-		 */
 		public void setCountDown(int x, int y, int z) {
 			BlockPos pos = new BlockPos(x, y, z);
 			if (!checkBlockBlackList.containsKey(pos)) {
@@ -651,9 +628,6 @@ public class EntityMode_Farmer extends EntityModeBase {
 			}
 		}
 		
-		/**
-		 * 実行した場合に一旦クリアする
-		 */
 		public void clearPos(int x, int y, int z) {
 			BlockPos pos = new BlockPos(x, y, z);
 			if (checkBlockBlackList.containsKey(pos)) {
@@ -661,9 +635,6 @@ public class EntityMode_Farmer extends EntityModeBase {
 			}
 		}
 		
-		/**
-		 * 初期化する
-		 */
 		public void reset() {
 			this.resetCountTimer--;
 			if (0 >= resetCountTimer) {
