@@ -19,6 +19,10 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.IPlantable;
 import firis.lmlib.api.constant.EnumSound;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+
 public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private final EntityLittleMaid maid;
     
@@ -46,16 +50,48 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             return false;
         }
 
-        this.runDelay = 0;
-        boolean foundTarget = super.shouldExecute();
-        
-        this.customScanDelay = 10 + this.maid.getRNG().nextInt(20);
+        // 【重构核心】：3D 全景雷达 + 预寻路验证
+        List<BlockPos> validTargets = new ArrayList<>();
+        BlockPos center = new BlockPos(maid);
+        World world = maid.getEntityWorld();
+        int range = 16;
 
-        if (foundTarget) {
-            System.out.println("[LMR-FARM-DEBUG] 雷达锁定目标方块: " + this.destinationBlock);
+        // 1. 扫描周围 16x16，高度 ±2 的所有方块
+        for (int x = -range; x <= range; x++) {
+            for (int y = -2; y <= 2; y++) {
+                for (int z = -range; z <= range; z++) {
+                    BlockPos pos = center.add(x, y, z);
+                    if (this.shouldMoveTo(world, pos)) {
+                        validTargets.add(pos);
+                    }
+                }
+            }
         }
 
-        return foundTarget;
+        // 2. 距离排序与验证
+        if (!validTargets.isEmpty()) {
+            // 按照距离从近到远排序
+            validTargets.sort(Comparator.comparingDouble(p -> p.distanceSq(center)));
+            
+            for (BlockPos target : validTargets) {
+                // 【防卡死绝杀】：向目标方块的上方(up)进行预寻路。
+                // 如果能走通，或者本身就已经贴脸了，才锁定它！
+                if (maid.getNavigator().getPathToPos(target.up()) != null || maid.getDistanceSqToCenter(target) < 4.5D) {
+                    this.destinationBlock = target;
+                    this.customScanDelay = 10 + maid.getRNG().nextInt(20);
+                    System.out.println("[LMR-FARM-DEBUG] 3D雷达锁定可达目标: " + target);
+                    
+                    // 强制立刻发车，不再等原版的 40 tick 延迟
+                    maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.movementSpeed);
+                    
+                    return true;
+                }
+            }
+        }
+
+        // 没找到或者全被墙挡死了，休息 1 秒再扫描
+        this.customScanDelay = 20;
+        return false;
     }
 
     @Override
@@ -167,7 +203,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     }
 
     private int getHadSeedIndex(){
-        // 完全摒弃了之前的复杂比对逻辑，只要是能种的 IPlantable 直接拿来用
         for (int i=0; i < maid.maidInventory.getSizeInventory(); i++) {
             ItemStack pStack = maid.maidInventory.getStackInSlot(i);
             if (!pStack.isEmpty() && pStack.getItem() instanceof IPlantable) return i;
@@ -186,7 +221,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     }
 
     private boolean isUnfarmedLand(World world, BlockPos pos) {
-        // 【和平模式开关】：现在改成了判定副手是否拿着小麦 (Items.WHEAT)！
+        // 【和平模式开关】：判断副手是否拿着小麦 (Items.WHEAT)！
         ItemStack offhandItem = maid.maidAvatar.getHeldItemOffhand();
         boolean isPeaceful = (!offhandItem.isEmpty() && offhandItem.getItem() == Items.WHEAT);
         if (isPeaceful) return false;
@@ -195,7 +230,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (block != Blocks.GRASS && block != Blocks.DIRT) return false;
         if (!world.isAirBlock(pos.up())) return false;
         
-        // 【水源限制】：以水为中心向外扩4格
+        // 【水源限制】：必须在水能滋润到的范围内
         if (!isBlockWatered(world, pos)) return false;
 
         return true;
