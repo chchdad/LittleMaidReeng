@@ -203,4 +203,7 @@ item.maid_stick.details1=Waiting action switching
 item.maid_stick.details2=Free action switching[Sneak]
 item.maid_stick.details3=Search LittleMaid[OffHand]
 item.maid_stick.details3=Call LittleMaid[OffHand:Sneak]
+message.lmr.souvenir.crush_warning=Shift + Right-click %s more time(s) to destroy the souvenir!
+message.lmr.souvenir.crush_done=The maid's souvenir has been destroyed.
+
 
