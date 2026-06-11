@@ -41,7 +41,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (maid.getOwner() != null && maid.getDistanceSq(maid.getOwner()) > 144.0D) {
             return false;
         }
-    }
 
     @Override
     public boolean shouldContinueExecuting() {
