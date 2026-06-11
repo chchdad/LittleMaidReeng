@@ -30,8 +30,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private int customScanDelay = 0;
     private boolean actionCompleted = false;
     
-    // 【长臂猿核心】：记录女仆尝试走向目标花费的时间
-    private int stuckTicks = 0; 
+    // 【物理防卡死系统变量】
+    private double lastPosX, lastPosY, lastPosZ;
+    private int checkStuckTimer = 0;
+    private int realStuckCount = 0;
 
     public EntityAILMRFarmer(EntityLittleMaid entityMaid, double speedIn) {
         super(entityMaid, speedIn, 16);
@@ -94,7 +96,13 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     public void startExecuting() {
         super.startExecuting();
         this.actionCompleted = false; 
-        this.stuckTicks = 0; // 每次接到新任务，卡死计时器清零
+        
+        // 任务开始时，记录初始坐标，清空卡死计数器
+        this.lastPosX = maid.posX;
+        this.lastPosY = maid.posY;
+        this.lastPosZ = maid.posZ;
+        this.checkStuckTimer = 0;
+        this.realStuckCount = 0;
     }
 
     @Override
@@ -140,20 +148,37 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             executeAction();
             this.actionCompleted = true;
             this.customScanDelay = 5; 
-            this.stuckTicks = 0;
         } else {
-            // 【长臂猿原力模式】：走不到？没关系！
-            this.stuckTicks++;
-            if (this.stuckTicks > 60) { // 如果朝着这个方块走了 3 秒（60 Tick）还没走到
-                System.out.println("[LMR-FARM-DEBUG] 寻路超时卡死！启动长臂猿模式，隔空原力执行！");
-                executeAction(); // 无视原版距离判定，直接调用底层代码修改方块！
-                this.actionCompleted = true; // 强制完工
-                this.customScanDelay = 5; 
-                this.stuckTicks = 0;
-            } else {
-                // 如果还没超时，继续努力走
-                this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
+            // 【物理防卡死检测】
+            this.checkStuckTimer++;
+            if (this.checkStuckTimer >= 20) { // 每 20 Tick (1秒) 检查一次位移
+                double movedSq = maid.getDistanceSq(lastPosX, lastPosY, lastPosZ);
+                
+                // 如果这一秒内，移动的距离不到 0.22 格 (平方约0.05)，说明撞墙或者卡住了
+                if (movedSq < 0.05D) {
+                    this.realStuckCount++;
+                } else {
+                    // 如果正在稳步前进，立马清零卡死计数器！
+                    this.realStuckCount = 0;
+                }
+                
+                // 更新记录的位置
+                this.lastPosX = maid.posX;
+                this.lastPosY = maid.posY;
+                this.lastPosZ = maid.posZ;
+                this.checkStuckTimer = 0;
+                
+                // 只有连续 3 次（即连续 3 秒）都没挪动步子，才触发长臂猿模式
+                if (this.realStuckCount >= 3) {
+                    System.out.println("[LMR-FARM-DEBUG] 物理坐标监测到卡死！启动长臂猿原力模式！");
+                    executeAction();
+                    this.actionCompleted = true;
+                    this.customScanDelay = 5; 
+                    return; // 强制结束本次更新
+                }
             }
+
+            this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
         }
     }
 
@@ -195,7 +220,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     int svCurrentIdx = maid.getDataWatchCurrentItem();
                     maid.maidInventory.setCurrentItemIndex(seedIndex);
                     
-                    // 因为这里直接调用了物品底层的 onItemUse，它不查验距离，完美契合长臂猿模式
                     seedStack.onItemUse(maid.maidAvatar, world, pos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 1.0F, 0.5F);
                     
                     maid.maidInventory.setCurrentItemIndex(svCurrentIdx);
@@ -242,7 +266,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (!world.isAirBlock(pos.up())) return false;
         if (!isBlockWatered(world, pos)) return false;
 
-        // 【补回核心限制】：四周必须有现成的农田才允许开垦！
         boolean hasAdjacentFarmland = false;
         for (EnumFacing facing : EnumFacing.HORIZONTALS) {
             if (world.getBlockState(pos.offset(facing)).getBlock() == Blocks.FARMLAND) {
