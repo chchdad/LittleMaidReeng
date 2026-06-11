@@ -221,6 +221,6 @@ item.maid_stick.info=可以指挥附近女仆的行动
 item.maid_stick.details1=切换待机模式
 item.maid_stick.details2=切换自由模式（潜行模式下）
 item.maid_stick.details3=寻找女仆（副手）
-message.lmr.souvenir.crush_warning=再次按shift+右键 %s 次将彻底销毁遗物！
+message.lmr.souvenir.crush_warning=再次按shift+右键 %s 次将销毁纪念品！
 message.lmr.souvenir.crush_done=已销毁女仆的纪念品
 
