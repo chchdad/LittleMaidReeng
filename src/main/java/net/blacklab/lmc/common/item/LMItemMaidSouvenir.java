@@ -31,12 +31,11 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 /**
- * メイドの土産 (重制防丢防爆绝对不朽版)
+ * メイドの土産 (真·不朽绑定与主人超度版)
  */
 public class LMItemMaidSouvenir extends Item {
 
 	public LMItemMaidSouvenir() {
-		//クリエイティブタブには登録しない
 		this.setMaxStackSize(1);
 	}
 
@@ -45,45 +44,32 @@ public class LMItemMaidSouvenir extends Item {
 	 */
 	@Override
 	public EnumActionResult onItemUse(EntityPlayer player, World worldIn, BlockPos pos, EnumHand hand, EnumFacing facing, float hitX, float hitY, float hitZ) {
-		
 		ItemStack stack = player.getHeldItem(hand);
 		
-		if (!stack.isEmpty() 
-				&& stack.getItem() == LMItems.MAID_SOUVENIR 
-				&& stack.hasTagCompound()) {
-			
+		if (!stack.isEmpty() && stack.getItem() == LMItems.MAID_SOUVENIR && stack.hasTagCompound()) {
 			BlockPos position = pos.offset(facing);
 			double x = position.getX() + 0.5;
 			double y = position.getY();
 			double z = position.getZ() + 0.5;
 			
-			//メイドさんのスポーン
 			Entity entity = LittleMaidHelper.spawnEntityFromItemStack(stack, worldIn, x, y, z);
 			
-			//ストライキ状態にする
 			if (entity != null) {
 				EntityLittleMaid maid = (EntityLittleMaid) entity;
-				//契約時間をリセット
 				maid.clearMaidContractLimit();
-				//ストライキを設定する
 				maid.setMaidFlags(true, dataWatch_Flags_remainsContract);
 			}
 			
 			player.setHeldItem(hand, ItemStack.EMPTY);
-			
-			//1秒のCoolDownTimeを設定
 			player.getCooldownTracker().setCooldown(this, 20);
-			
 			return EnumActionResult.SUCCESS;
 		}
-		
         return EnumActionResult.PASS;
     }
 	
 	@Override
 	@SideOnly(Side.CLIENT)
     public void addInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
-		
 		tooltip.add(TextFormatting.LIGHT_PURPLE + I18n.format("item.maid_souvenir.info"));
 		
 		if (stack.hasTagCompound()) {
@@ -104,10 +90,8 @@ public class LMItemMaidSouvenir extends Item {
 	@Override
 	@Nullable
     public Entity createEntity(World world, Entity location, ItemStack itemstack) {
-        // 使用我们独家定制的绝对不朽实体替换掉原本的 LMEntityItemAntiDamage
 		EntityItemMaidSouvenir entity = new EntityItemMaidSouvenir(world, location.posX, location.posY, location.posZ, itemstack);
 		entity.setDefaultPickupDelay();
-
 		entity.motionX = location.motionX;
 		entity.motionY = location.motionY;
 		entity.motionZ = location.motionZ;
@@ -115,7 +99,6 @@ public class LMItemMaidSouvenir extends Item {
 		if (LMRConfig.cfg_general_item_glowing) {
 			entity.setGlowing(true);
 		}
-		
         return entity;
     }
 	
@@ -131,15 +114,18 @@ public class LMItemMaidSouvenir extends Item {
     }
 
     // ====================================================================
-    // 专属的不死掉落物实体类 (免疫一切伤害 + 虚空秽土转生)
+    // 专属不死实体类 (免疫一切环境伤害 + 主人潜行右键 3 次捏碎超度 + 虚空回归)
     // ====================================================================
     public static class EntityItemMaidSouvenir extends EntityItem {
+        
+        // 【新增】：记录捏碎进度
+        private int crushProgress = 0;
         
         public EntityItemMaidSouvenir(World worldIn, double x, double y, double z, ItemStack stack) {
             super(worldIn, x, y, z, stack);
             this.isImmuneToFire = true;
             this.setEntityInvulnerable(true);
-            this.lifespan = Integer.MAX_VALUE; // 永不消失
+            this.lifespan = Integer.MAX_VALUE;
         }
 
         public EntityItemMaidSouvenir(World worldIn) {
@@ -149,36 +135,86 @@ public class LMItemMaidSouvenir extends Item {
             this.lifespan = Integer.MAX_VALUE;
         }
 
-        // 【智能防御系统】：拦截意外伤害，但允许刻意销毁
+        /**
+         * 【认主超度核心】：需要连续潜行右键 3 次才能销毁！
+         */
+        @Override
+        public boolean processInitialInteract(EntityPlayer player, EnumHand hand) {
+            // 必须在服务端执行，玩家必须潜行，且【只能是主手】（防止右键一下触发两次）
+            if (!this.world.isRemote && player.isSneaking() && hand == EnumHand.MAIN_HAND) {
+                ItemStack stack = this.getItem();
+                
+                if (stack.hasTagCompound() && stack.getTagCompound().hasKey("maid_owner")) {
+                    String ownerTarget = stack.getTagCompound().getString("maid_owner");
+                    
+                    if (player.getUniqueID().toString().equals(ownerTarget) || player.getName().equals(ownerTarget)) {
+                        
+                        this.crushProgress++;
+                        
+                        if (this.crushProgress >= 3) {
+                            // 【第 3 次：彻底销毁】
+                            this.world.playSound(null, this.posX, this.posY, this.posZ, 
+                                    net.minecraft.init.SoundEvents.BLOCK_GLASS_BREAK, 
+                                    net.minecraft.util.SoundCategory.PLAYERS, 1.0F, 0.5F);
+                            
+                            if (this.world instanceof WorldServer) {
+                                ((WorldServer)this.world).spawnParticle(
+                                    net.minecraft.util.EnumParticleTypes.SMOKE_LARGE, 
+                                    this.posX, this.posY + 0.5D, this.posZ, 
+                                    25, 0.2D, 0.2D, 0.2D, 0.0D);
+                            }
+                            
+                            //发送多语言提示 (灰色)
+                            net.minecraft.util.text.TextComponentTranslation doneMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_done");
+                            doneMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.DARK_GRAY);
+                            player.sendMessage(doneMsg);
+                            
+                            this.setDead();
+                            
+                        } else {
+                            // 【前 2 次：警告与音效】
+                            this.world.playSound(null, this.posX, this.posY, this.posZ, 
+                                    net.minecraft.init.SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 
+                                    net.minecraft.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
+                            
+                            int leftClicks = 3 - this.crushProgress;
+                            
+                            // 发送多语言带参数的警告提示 (红色)
+                            // 这里的 leftClicks 会自动填入语言文件里的 %s 或 %d 占位符中
+                            net.minecraft.util.text.TextComponentTranslation warnMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_warning", leftClicks);
+                            warnMsg.getStyle().setColor(net.minecraft.util.text.TextFormatting.RED);
+                            player.sendMessage(warnMsg);
+                        }
+
+                        
+                        return true; 
+                    }
+                }
+            }
+            return super.processInitialInteract(player, hand);
+        }
+
+        /**
+         * 拦截一切常规物理、生物、爆炸伤害 (关闭了铁砧后门，全面防爆)
+         */
         @Override
         public boolean attackEntityFrom(DamageSource source, float amount) {
-            
-            // 1. 允许管理员使用 /kill 指令强制清理 (指令发出的也是 OUT_OF_WORLD 伤害)
-            // 放心，这不会干扰虚空传送，因为坠入虚空触发的是 outOfWorld() 方法，而不是这里的伤害事件
             if (source == DamageSource.OUT_OF_WORLD) {
                 return super.attackEntityFrom(source, amount);
             }
-            
-            // 2. 允许玩家使用【坠落的铁砧】进行物理超度
-            if (source == DamageSource.ANVIL) {
-                System.out.println("[LMR-DEATH-DEBUG] 遗物已被铁砧物理超度，彻底销毁！");
-                return super.attackEntityFrom(source, amount);
-            }
-            
-            // 其他一切意外伤害（岩浆、爆炸、仙人掌、火烧等）全部免疫！
             return false; 
-		}
+        }
 
-        // 跨界秽土转生：掉出世界底部时的处理
+        /**
+         * 虚空坠落保护
+         */
         @Override
         protected void outOfWorld() {
             if (!this.world.isRemote) {
-                // 强制获取主世界（维度 0）
                 WorldServer overworld = DimensionManager.getWorld(0);
                 if (overworld != null) {
                     BlockPos spawnPos = overworld.getSpawnPoint();
                     
-                    // 生成新遗物。务必使用 copy() 切断内存指针联系！
                     EntityItemMaidSouvenir safeItem = new EntityItemMaidSouvenir(
                         overworld, 
                         spawnPos.getX() + 0.5D, 
@@ -198,8 +234,6 @@ public class LMItemMaidSouvenir extends Item {
                     
                     overworld.spawnEntity(safeItem);
                 }
-                
-                // 安全抹除掉入虚空的旧实体，引擎会自动在 Tick 末尾回收它，不会引发 NPE
                 this.setDead();
             }
         }
