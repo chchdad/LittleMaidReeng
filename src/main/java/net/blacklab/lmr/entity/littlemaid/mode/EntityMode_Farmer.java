@@ -157,7 +157,8 @@ public class EntityMode_Farmer extends EntityModeBase {
 
 	@Override
 	public boolean isSearchBlock() {
-		return !owner.isMaidWait()&&(!owner.getCurrentEquippedItem().isEmpty());
+		// 把寻路权还给底层护卫 AI，只要跑远了，她瞬间就能粘过来
+		return false;
 	}
 
 	@Override
@@ -342,8 +343,95 @@ public class EntityMode_Farmer extends EntityModeBase {
 
 	@Override
 	public void updateAITick(String pMode) {
+		if (!pMode.equals(mmode_Farmer)) return;
 
+		// 1. 防走丢强制打断机制：如果距离主人超过 12 格 (平方144)，立刻清空感知，让底层 AI 追人
+		net.minecraft.entity.EntityLivingBase master = owner.getOwner();
+		if (master != null && owner.getDistanceSq(master) > 144.0D) {
+			perceivedTarget = null;
+			return; 
+		}
+
+		// 冷却控制，防止动作鬼畜
+		if (actionCooldown > 0) {
+			actionCooldown--;
+			return;
+		}
+
+		World world = owner.getEntityWorld();
+
+		// 2. 【展开感知域】：每 10 Tick 释放一次雷达，直接获取最近目标
+		if (perceivedTarget == null && owner.ticksExisted % 10 == 0) {
+			List<BlockPos> radar = new ArrayList<>();
+			ItemStack offhandItem = owner.maidAvatar.getHeldItemOffhand();
+			boolean isPeacefulFarmer = (!offhandItem.isEmpty() && offhandItem.getItem() == Items.WHEAT_SEEDS);
+			int range = 16;
+
+			// 瞬间感知周围 16x16 范围内的一切
+			for (int x = -range; x <= range; x++) {
+				for (int y = -2; y <= 2; y++) {
+					for (int z = -range; z <= range; z++) {
+						BlockPos targetPos = new BlockPos(owner.posX + x, owner.posY + y, owner.posZ + z);
+						IBlockState state = world.getBlockState(targetPos);
+						Block block = state.getBlock();
+
+						// 提取符合条件的方块
+						if (block == Blocks.REEDS && world.getBlockState(targetPos.down()).getBlock() == Blocks.REEDS) {
+							radar.add(targetPos);
+						} else if (block instanceof BlockCrops) {
+							if (((BlockCrops) block).isMaxAge(state)) {
+								radar.add(targetPos); // 成熟了，感知到
+							} else {
+								// 未成熟的话，只有包里有骨粉才感知它，否则无视
+								for (int i = 0; i < owner.maidInventory.getSizeInventory(); i++) {
+									ItemStack stack = owner.maidInventory.getStackInSlot(i);
+									if (!stack.isEmpty() && stack.getItem() == Items.DYE && stack.getMetadata() == 15) {
+										radar.add(targetPos); break;
+									}
+								}
+							}
+						} else if (block == Blocks.FARMLAND) {
+							int seedIndex = getHadSeedIndex();
+							if (seedIndex != -1 && isFarmedLand(targetPos.getX(), targetPos.getY(), targetPos.getZ(), owner.maidInventory.getStackInSlot(seedIndex))) {
+								radar.add(targetPos); // 空地能种，感知到
+							}
+						} else if (!isPeacefulFarmer && isUnfarmedLand(targetPos.getX(), targetPos.getY(), targetPos.getZ())) {
+							radar.add(targetPos); // 荒地能开垦，感知到
+						}
+					}
+				}
+			}
+
+			// 永远锁定感知域内离脚下最近的那个
+			if (!radar.isEmpty()) {
+				radar.sort(Comparator.comparingDouble(p -> p.distanceSq(owner.posX, owner.posY, owner.posZ)));
+				perceivedTarget = radar.get(0);
+			}
+		}
+
+		// 3. 【行动阶段】：走向感知到的目标并执行
+		if (perceivedTarget != null) {
+			double dist = owner.getDistanceSqToCenter(perceivedTarget);
+
+			if (dist > 4.5D) {
+				// 距离大于2格，命令寻路系统走过去
+				owner.getNavigator().tryMoveToXYZ(perceivedTarget.getX(), perceivedTarget.getY(), perceivedTarget.getZ(), 0.6D);
+				
+				// 如果被障碍物卡住，果断放弃这个目标，下一次重新感知
+				if (owner.getNavigator().noPath() && dist > 5.0D) {
+					perceivedTarget = null;
+					actionCooldown = 20; 
+				}
+			} else {
+				// 距离够近，立刻停下并执行手部操作！
+				owner.getNavigator().clearPath();
+				executePerceivedAction(world, perceivedTarget); // 调用下面的新方法
+				perceivedTarget = null; // 目标处理完毕，清空脑海
+				actionCooldown = 10; // 休息半秒，模拟干活后摇
+			}
+		}
 	}
+
 
 	protected int getHadSeedIndex(){
 		for (int i=0; i < owner.maidInventory.getSizeInventory(); i++) {
@@ -355,8 +443,77 @@ public class EntityMode_Farmer extends EntityModeBase {
 		}
 		return -1;
 	}
+		private void executePerceivedAction(World world, BlockPos pos) {
+		IBlockState state = world.getBlockState(pos);
+		Block block = state.getBlock();
+		ItemStack curStack = owner.getCurrentEquippedItem();
+		ItemStack offhandItem = owner.maidAvatar.getHeldItemOffhand();
+		boolean isPeacefulFarmer = (!offhandItem.isEmpty() && offhandItem.getItem() == Items.WHEAT_SEEDS);
 
-		// 替换原来的 isUnfarmedLand (防野外乱开垦)
+		// 动作 A：收甘蔗
+		if (block == Blocks.REEDS && world.getBlockState(pos.down()).getBlock() == Blocks.REEDS) {
+			world.destroyBlock(pos, true);
+			owner.setSwing(10, EnumSound.FARMER_HARVEST, false);
+			owner.addMaidExperience(4f);
+			return;
+		}
+		
+		// 动作 B：收成熟庄稼
+		if (block instanceof BlockCrops && ((BlockCrops) block).isMaxAge(state)) {
+			world.destroyBlock(pos, true);
+			owner.setSwing(10, EnumSound.FARMER_HARVEST, false);
+			owner.addMaidExperience(4f);
+			return;
+		}
+
+		// 动作 C：骨粉催熟
+		if (block instanceof BlockCrops && !((BlockCrops) block).isMaxAge(state)) {
+			for (int i = 0; i < owner.maidInventory.getSizeInventory(); i++) {
+				ItemStack stackInSlot = owner.maidInventory.getStackInSlot(i);
+				if (!stackInSlot.isEmpty() && stackInSlot.getItem() == Items.DYE && stackInSlot.getMetadata() == 15) {
+					if (ItemDye.applyBonemeal(stackInSlot, world, pos, owner.maidAvatar, EnumHand.MAIN_HAND)) {
+						owner.setSwing(10, EnumSound.NULL, false);
+						world.playEvent(2005, pos, 0); 
+						return;
+					}
+				}
+			}
+		}
+
+		// 动作 D：空农田播种
+		if (block == Blocks.FARMLAND) {
+			int seedIndex = getHadSeedIndex();
+			if (seedIndex != -1) {
+				ItemStack seedStack = owner.maidInventory.getStackInSlot(seedIndex);
+				if (isFarmedLand(pos.getX(), pos.getY(), pos.getZ(), seedStack)) { // 修复了种地判定Bug
+					int svCurrentIdx = owner.getDataWatchCurrentItem();
+					owner.maidInventory.setCurrentItemIndex(seedIndex);
+					
+					seedStack.onItemUse(owner.maidAvatar, world, pos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 1.0F, 0.5F);
+					
+					owner.maidInventory.setCurrentItemIndex(svCurrentIdx);
+					owner.setSwing(10, EnumSound.FARMER_PLANT, false);
+					if (seedStack.getCount() <= 0) owner.maidInventory.setInventorySlotContents(seedIndex, ItemStack.EMPTY);
+					return;
+				}
+			}
+		}
+
+		// 动作 E：开垦荒地
+		if (!isPeacefulFarmer && isUnfarmedLand(pos.getX(), pos.getY(), pos.getZ())) {
+			if (curStack.onItemUse(owner.maidAvatar, world, pos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 1.0F, 0.5F) == EnumActionResult.SUCCESS) {
+				owner.setSwing(10, EnumSound.FARMER_FARM, false);
+				curStack.damageItem(1, owner.maidAvatar); 
+				if (curStack.getCount() <= 0) {
+					owner.maidInventory.setInventoryCurrentSlotContents(ItemStack.EMPTY);
+					owner.getNextEquipItem();
+				}
+			}
+		}
+	}
+
+
+	// 替换原来的 isUnfarmedLand (防卡死与野外乱开垦)
 	protected boolean isUnfarmedLand(int x, int y, int z) {
 		BlockPos pos = new BlockPos(x, y, z);
 		World world = owner.getEntityWorld();
@@ -366,7 +523,13 @@ public class EntityMode_Farmer extends EntityModeBase {
 		if (block != Blocks.GRASS && block != Blocks.DIRT) {
 			return false;
 		}
-		// ✨严格的主权校验：四周必须有现成的农田才允许开垦！
+		
+		// 【修复关键点】如果要开垦这块地，它的正上方必须是空气！防止对着障碍物死磕。
+		if (!world.isAirBlock(pos.up())) {
+			return false;
+		}
+
+		// 严格的主权校验：四周必须有现成的农田才允许开垦
 		for (EnumFacing facing : EnumFacing.HORIZONTALS) {
 			if (world.getBlockState(pos.offset(facing)).getBlock() == Blocks.FARMLAND) {
 				return true;
@@ -375,17 +538,21 @@ public class EntityMode_Farmer extends EntityModeBase {
 		return false;
 	}
 
-	// 替换原来的 isFarmedLand (神级可种植判定)
+
+		// 替换原来的 isFarmedLand (修复种地判定)
 	protected boolean isFarmedLand(int x, int y, int z, ItemStack seedStack) {
 		if (seedStack.isEmpty() || !(seedStack.getItem() instanceof IPlantable)) return false;
 		BlockPos pos = new BlockPos(x, y, z);
 		World world = owner.getEntityWorld();
-		IBlockState soil = world.getBlockState(pos.down());
+		
+		// 【修复关键点】直接获取当前的方块(耕地)，而不是 pos.down()
+		IBlockState soil = world.getBlockState(pos); 
 		IPlantable seed = (IPlantable) seedStack.getItem();
 		
-		// ✨问游戏引擎：底下的土壤能种这颗种子吗？
-		return soil.getBlock().canSustainPlant(soil, world, pos.down(), EnumFacing.UP, seed);
+		// 问游戏引擎：这块耕地(soil)能种这颗种子吗？
+		return soil.getBlock().canSustainPlant(soil, world, pos, EnumFacing.UP, seed);
 	}
+
 
 	protected boolean isCropGrown(int x, int y, int z){
 		BlockPos position = new BlockPos(x, y, z);
