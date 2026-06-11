@@ -159,7 +159,48 @@ public class EntityMode_Farmer extends EntityModeBase {
 		return true;//UtilModeFarmer.isHoe(owner, pItemStack)||UtilModeFarmer.isSeed(pItemStack.getItem())||UtilModeFarmer.isCrop(pItemStack.getItem());
 	}
 
-	
+		public static class checkBlockBlackListManager {
+		private final int graceTime = 40;
+		private final int allResetTimeTick = 12000;
+		private Map<BlockPos, Integer> checkBlockBlackList = new HashMap<>();
+		private int resetCountTimer = allResetTimeTick;
+		
+		public boolean isBlackList(int x, int y, int z) {
+			BlockPos pos = new BlockPos(x, y, z);
+			if (checkBlockBlackList.containsKey(pos)) {
+				Integer count = checkBlockBlackList.get(pos);
+				if (count <= 0) return true;
+			}
+			return false;
+		}
+		
+		public void setCountDown(int x, int y, int z) {
+			BlockPos pos = new BlockPos(x, y, z);
+			if (!checkBlockBlackList.containsKey(pos)) {
+				checkBlockBlackList.put(pos, graceTime);
+			}
+			if (checkBlockBlackList.containsKey(pos)) {
+				Integer count = checkBlockBlackList.get(pos);
+				count--;
+				checkBlockBlackList.put(pos, count);
+				if (count <= 0) checkBlockBlackList.put(pos, 0);
+			}
+		}
+		
+		public void clearPos(int x, int y, int z) {
+			BlockPos pos = new BlockPos(x, y, z);
+			if (checkBlockBlackList.containsKey(pos)) checkBlockBlackList.remove(pos);
+		}
+		
+		public void reset() {
+			this.resetCountTimer--;
+			if (0 >= resetCountTimer) {
+				checkBlockBlackList.clear();
+				resetCountTimer = allResetTimeTick;
+			}
+		}
+	}
+
 	
 	@Override
 	public boolean isCancelPutChestItemStack(String pMode, ItemStack stack, int slotIndedx) {
