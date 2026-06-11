@@ -1,35 +1,33 @@
-name: Build Mod
+name: Build LMR Mod
 
-on:
-  push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
+on: 
   workflow_dispatch:
+  push:
+    branches: [ "master", "main" ] # 每次推送到主分支时自动编译
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 8
-      uses: actions/setup-java@v4
-      with:
-        java-version: '8'
-        distribution: 'temurin'
-        cache: 'gradle
+      - name: ☕ 设置 Java 8 并自动开启 Gradle 缓存
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '8'   
+          cache: 'gradle'       
+          
+      - name: 🔨 赋予 Gradle 执行权限
+        run: chmod +x ./gradlew
 
-    - name: Grant Execute Permission for Gradlew
-      run: chmod +x gradlew
+      - name: 🚀 编译并构建模组
+        run: ./gradlew build
 
-    - name: Build with Gradle
-      run: ./gradlew build
-
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: compiled-mod-jar
-        path: build/libs/*.jar
+      - name: 📦 上传编译好的 Mod 本体
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-lmr-mod
+          path: build/libs/*.jar
