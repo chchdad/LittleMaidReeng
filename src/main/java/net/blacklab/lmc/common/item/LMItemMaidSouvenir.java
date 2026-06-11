@@ -33,7 +33,7 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 /**
- * メイドの土産 (在手捏碎超度 + 强制发光轮廓 + 恶魂式岩浆悬浮)
+ * メイドの土産 (在手捏碎超度 + 强制发光 + 恶魂式真实岩浆悬浮修正版)
  */
 public class LMItemMaidSouvenir extends Item {
 
@@ -179,7 +179,7 @@ public class LMItemMaidSouvenir extends Item {
     }
 
     // ====================================================================
-    // 专属不死实体类 (药水发光轮廓 + 恶魂式岩浆悬浮 + 不朽 + 虚空转生)
+    // 专属不死实体类 (弹簧式防蹦极岩浆悬浮 + 强制常驻发光)
     // ====================================================================
     public static class EntityItemMaidSouvenir extends EntityItem {
         
@@ -191,7 +191,7 @@ public class LMItemMaidSouvenir extends Item {
             super(worldIn);
         }
         
-        // 解除视距渲染限制，保证无论多远，发光轮廓都能被客户端渲染
+        // 无视视距强制渲染发光效果
         @Override
         @SideOnly(Side.CLIENT)
         public boolean isInRangeToRenderDist(double distance) {
@@ -211,41 +211,54 @@ public class LMItemMaidSouvenir extends Item {
                 this.isImmuneToFire = true;
                 this.lifespan = Integer.MAX_VALUE; 
                 
-                // 【发光效果系统】：赋予原版实体高亮（Glowing）效果
+                // 【强制发光】：只要有主人，无条件开启发光轮廓
                 if (!this.isGlowing()) {
                     this.setGlowing(true);
                 }
 
-                // 【恶魂式岩浆悬浮系统】
+                // 【物理引擎修正 - 弹簧式岩浆悬浮系统】
                 if (this.isInLava()) {
-                    // 如果不小心没入岩浆内部，快速上升出岩浆表面
-                    this.motionY = 0.2D;
-                    this.motionX *= 0.8D;
-                    this.motionZ *= 0.8D;
+                    // 1. 如果掉进了岩浆，只给一个极其微弱的上升力，防止它射出水面
+                    this.motionY = 0.06D;
+                    this.motionX *= 0.7D;
+                    this.motionZ *= 0.7D;
                 } else {
-                    // 向下扫描 1~4 格，判断下方是否有岩浆
-                    boolean overLava = false;
+                    // 2. 向下扫描 3 格，测量离岩浆表面的具体距离
+                    int lavaDistance = 0;
                     BlockPos currentPos = new BlockPos(this);
-                    for (int i = 1; i <= 4; i++) {
+                    for (int i = 1; i <= 3; i++) {
                         if (this.world.getBlockState(currentPos.down(i)).getMaterial() == net.minecraft.block.material.Material.LAVA) {
-                            overLava = true;
+                            lavaDistance = i;
                             break;
                         }
                     }
 
-                    if (overLava) {
-                        // 原版 EntityItem 每 Tick 会有 -0.04D 的重力加速度，这里加上 0.04D 完全抵消重力
-                        this.motionY += 0.04D;
+                    if (lavaDistance > 0) {
+                        // 3. 核心修复：直接【覆写】Y轴速度。
+                        // 这将瞬间抹杀它冲出岩浆时的所有惯性，彻底解决“蹦极”Bug。
+                        // 0.04D 是为了精准抵消下一刻原版的重力 (-0.03999D)
+                        double targetHoverY = 0.04D;
                         
-                        // 加入基于存活时间的缓动正弦波，实现类似恶魂的平滑“呼吸”悬浮感
-                        this.motionY += Math.sin(this.ticksExisted * 0.05D) * 0.015D;
+                        // 4. 加入恶魂式的平滑呼吸律动感
+                        targetHoverY += Math.sin(this.ticksExisted * 0.1D) * 0.015D;
                         
-                        // 增加水平空气阻力，防止它在悬浮时被外力（如水流或其他实体）撞飞太远
-                        this.motionX *= 0.9D;
-                        this.motionZ *= 0.9D;
+                        // 5. 弹簧高度矫正：强迫它永远锁定在离岩浆 2 格高的地方
+                        if (lavaDistance == 1) {
+                            targetHoverY += 0.03D; // 离得太近？拉高！
+                        } else if (lavaDistance == 3) {
+                            targetHoverY -= 0.02D; // 飞得太高？压低！
+                        }
+                        
+                        // 覆盖动量
+                        this.motionY = targetHoverY;
+                        
+                        // 6. 空气阻力刹车：防止它在岩浆上方被其他实体踢出悬浮区域
+                        this.motionX *= 0.6D;
+                        this.motionZ *= 0.6D;
                     }
                 }
             } else {
+                // 如果是被清除了 NBT 的普通物品，恢复原版逻辑
                 this.isImmuneToFire = false;
                 if (this.isGlowing() && !LMRConfig.cfg_general_item_glowing) {
                     this.setGlowing(false);
