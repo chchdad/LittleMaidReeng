@@ -121,9 +121,10 @@ public class LMItemMaidSouvenir extends Item {
 					
 					stack.setCount(0); 
 				} else {
+					// 修复 1：修正了 SoundCategory 的包名路径
 					world.playSound(null, player.posX, player.posY, player.posZ, 
 							net.minecraft.init.SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 
-							net.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
+							net.minecraft.util.SoundCategory.PLAYERS, 0.5F, 1.5F);
 					
 					int leftClicks = 3 - progress;
 					net.minecraft.util.text.TextComponentTranslation warnMsg = new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_warning", leftClicks);
@@ -185,12 +186,18 @@ public class LMItemMaidSouvenir extends Item {
         
         public EntityItemMaidSouvenir(World worldIn, double x, double y, double z, ItemStack stack) {
             super(worldIn, x, y, z, stack);
-            this.renderDistanceWeight = 10.0D; // 【关键修改】：成倍放大实体渲染剔除距离，防止实体本身被提早卸载
+            // 修复 2：移除了私有变量 renderDistanceWeight 的访问
         }
 
         public EntityItemMaidSouvenir(World worldIn) {
             super(worldIn);
-            this.renderDistanceWeight = 10.0D;
+        }
+        
+        // 修复 3：通过重写 isInRangeToRenderDist 方法，彻底解除实体的视距渲染限制
+        @Override
+        @SideOnly(Side.CLIENT)
+        public boolean isInRangeToRenderDist(double distance) {
+            return true; // 强制在任何距离下都保持实体渲染状态，配合光柱效果
         }
 
         private boolean hasValidOwner() {
@@ -238,7 +245,7 @@ public class LMItemMaidSouvenir extends Item {
 					for (int i = 0; i < 8; i++) {
 						double pY = this.posY + (this.world.rand.nextDouble() * 30.0D);
 						
-						// 【关键修改】：第二个参数设为 true，告诉引擎忽略视距，强制渲染这束光！
+						// 第二个参数设为 true，告诉引擎忽略视距，强制渲染这束光！
 						this.world.spawnParticle(net.minecraft.util.EnumParticleTypes.SPELL_MOB, true, 
 							this.posX + (this.world.rand.nextDouble() - 0.5D) * 0.1D, 
 							pY, 
