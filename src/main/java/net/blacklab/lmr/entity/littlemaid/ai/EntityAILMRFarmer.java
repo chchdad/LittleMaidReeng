@@ -31,6 +31,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private int customScanDelay = 0;
     private boolean actionCompleted = false;
     
+    // 【新增：动作硬直冷却器】
+    private int actionCooldown = 0;
+    
     // 【物理防卡死系统变量】
     private double lastPosX, lastPosY, lastPosZ;
     private int checkStuckTimer = 0;
@@ -87,7 +90,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 for (int z = -range; z <= range; z++) {
                     BlockPos pos = center.add(x, y, z);
                     
-                    // 【安全栓：雷达越界保护】：绝对禁止扫描会导致女仆跨越 30 格安全线的目标
                     if (owner != null && owner.getDistanceSqToCenter(pos) > 900.0D) {
                         continue; 
                     }
@@ -105,7 +107,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             for (BlockPos target : validTargets) {
                 if (maid.getNavigator().getPathToPos(target.up()) != null || maid.getDistanceSqToCenter(target) < 4.5D) {
                     this.destinationBlock = target;
-                    System.out.println("[LMR-FARM-DEBUG] 雷达锁定新目标: " + target);
                     maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.moveSpeed);
                     return true;
                 }
@@ -145,6 +146,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     @Override
     public void startExecuting() {
         this.actionCompleted = false; 
+        this.actionCooldown = 0; // 启动时重置硬直
         this.lastPosX = maid.posX;
         this.lastPosY = maid.posY;
         this.lastPosZ = maid.posZ;
@@ -177,12 +179,12 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             if (distSq > 64.0D && isMoving) return false;
         }
         
+        // 只要在硬直冷却中，无条件维持任务不中断
+        if (this.actionCooldown > 0) return true;
+        
         return this.shouldMoveTo(maid.getEntityWorld(), this.destinationBlock);
     }
 
-    // =================================================================
-    // 【核心修复】：补回了遗失的方块属性鉴定器
-    // =================================================================
     @Override
     protected boolean shouldMoveTo(World worldIn, BlockPos pos) {
         IBlockState state = worldIn.getBlockState(pos);
@@ -211,6 +213,27 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
     @Override
     public void updateTask() {
+        // =========================================================
+        // 【核心拟真机制】：动作硬直判定
+        // =========================================================
+        if (this.actionCooldown > 0) {
+            this.actionCooldown--;
+            // 硬直结束的瞬间，立刻扫描下一块地！
+            if (this.actionCooldown == 0) {
+                if (searchNextTarget()) {
+                    this.realStuckCount = 0;
+                    this.checkStuckTimer = 0;
+                    this.lastPosX = maid.posX;
+                    this.lastPosY = maid.posY;
+                    this.lastPosZ = maid.posZ;
+                } else {
+                    this.actionCompleted = true;
+                    this.customScanDelay = 20; 
+                }
+            }
+            return; // 罚站期间直接 return，不准位移，让动画播完
+        }
+
         double dist = maid.getDistanceSqToCenter(this.destinationBlock);
 
         if (dist > 16.0D) { 
@@ -222,16 +245,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (dist < 4.5D) {
             executeAction();
             
-            if (searchNextTarget()) {
-                this.realStuckCount = 0;
-                this.checkStuckTimer = 0;
-                this.lastPosX = maid.posX;
-                this.lastPosY = maid.posY;
-                this.lastPosZ = maid.posZ;
-            } else {
-                this.actionCompleted = true;
-                this.customScanDelay = 20; 
-            }
+            // 【触发硬直】：强行停止脚底抹油，并进入 12 游戏刻 (0.6秒) 的罚站状态
+            maid.getNavigator().clearPath();
+            this.actionCooldown = 12;
             
         } else {
             this.checkStuckTimer++;
@@ -252,19 +268,12 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 this.checkStuckTimer = 0;
                 
                 if (this.realStuckCount >= 3) {
-                    System.out.println("[LMR-FARM-DEBUG] 卡死确认！启动长臂猿模式，强行完工并寻找下个目标！");
+                    System.out.println("[LMR-FARM-DEBUG] 卡死确认！启动长臂猿模式！");
                     executeAction();
                     
-                    if (searchNextTarget()) {
-                        this.realStuckCount = 0;
-                        this.checkStuckTimer = 0;
-                        this.lastPosX = maid.posX;
-                        this.lastPosY = maid.posY;
-                        this.lastPosZ = maid.posZ;
-                    } else {
-                        this.actionCompleted = true;
-                        this.customScanDelay = 20;
-                    }
+                    // 即使是卡死隔空作业，也要遵守劳动法，硬直 0.6 秒！
+                    maid.getNavigator().clearPath();
+                    this.actionCooldown = 12;
                     return; 
                 }
             }
