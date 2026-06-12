@@ -3,7 +3,7 @@ package net.blacklab.lmr.entity.littlemaid.ai.move;
 import net.blacklab.lmr.config.LMRConfig;
 import net.blacklab.lmr.entity.littlemaid.EntityLittleMaid;
 import net.blacklab.lmr.entity.littlemaid.ai.IEntityAILM;
-import net.blacklab.lmr.entity.littlemaid.mode.EntityMode_Farmer; // 【新增】引入农夫模式标识
+import net.blacklab.lmr.entity.littlemaid.mode.EntityMode_Farmer;
 import net.blacklab.lmr.util.helper.MaidHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.ai.EntityAIBase;
@@ -19,6 +19,12 @@ public class EntityAILMFollowOwner extends EntityAIBase implements IEntityAILM {
 	protected double sprintDist;
 	protected boolean isEnable;
 
+	// ====== 真实移动监测系统 ======
+	private double lastOwnerX, lastOwnerY, lastOwnerZ;
+	private boolean isOwnerMoving = false;
+	private long lastCheckTime = 0;
+	private int ownerStopTicks = 0;
+
 	public EntityAILMFollowOwner(EntityLittleMaid par1EntityLittleMaid,
 			float pSpeed, double pSprintDistSQ) {
 		theMaid = par1EntityLittleMaid;
@@ -29,73 +35,93 @@ public class EntityAILMFollowOwner extends EntityAIBase implements IEntityAILM {
 	}
 
 	/**
-	 * 【新增】：精准检测玩家是否正在发生实质性位移
+	 * 【核心修复】：基于服务端绝对坐标的时间戳缓存位移检测
 	 */
-	private boolean isPlayerMoving(EntityPlayer player) {
+	private boolean checkOwnerMoving(EntityPlayer player) {
 		if (player == null) return false;
-		double dX = player.posX - player.prevPosX;
-		double dZ = player.posZ - player.prevPosZ;
-		return (dX * dX + dZ * dZ) > 0.001D;
+		long currentTime = theMaid.getEntityWorld().getTotalWorldTime();
+		// 同一个 Tick 内不重复计算，节省性能
+		if (currentTime == lastCheckTime) return isOwnerMoving;
+
+		double dX = player.posX - this.lastOwnerX;
+		double dZ = player.posZ - this.lastOwnerZ;
+		this.lastOwnerX = player.posX;
+		this.lastOwnerY = player.posY;
+		this.lastOwnerZ = player.posZ;
+		lastCheckTime = currentTime;
+
+		// 判定为发生实质性位移
+		if (dX * dX + dZ * dZ > 0.005D) {
+			ownerStopTicks = 0;
+			isOwnerMoving = true;
+		} else {
+			ownerStopTicks++;
+			// 给予 0.5 秒 (10 Ticks) 的宽限期，防止玩家短暂转身停顿导致 AI 抽搐
+			isOwnerMoving = ownerStopTicks < 10;
+		}
+		return isOwnerMoving;
 	}
 
-	/**
-	 * Returns whether the EntityAIBase should begin execution.
-	 */
 	public boolean shouldExecute() {
-		if (!isEnable)
-			return false;
-			
-		// ====== 【终极 AI 拦截网：底层接管】 ======
+		if (!isEnable) return false;
+		
 		Entity owner = theMaid.getMaidMasterEntity();
 		if (owner instanceof EntityPlayer) {
 			EntityPlayer player = (EntityPlayer) owner;
+			
+			// 必须每 Tick 调用以保持坐标追踪
+			boolean isMoving = checkOwnerMoving(player); 
 			double distSq = theMaid.getDistanceSq(player);
 			
-			// 1. 绝对死线兜底：距离超过 32 格 (1024.0D)，不管三七二十一，强行放行跟随AI，防止女仆走丢进入未加载区块！
+			// 1. 绝对死线兜底：距离超过 32 格 (1024.0D)，强行释放跟随权限，防止进入未加载区块！
 			if (distSq > 1024.0D) {
 				return MaidHelper.canStartFollow(theMaid);
 			}
 			
-			// 2. 农夫模式免打扰拦截：只要是农夫，且主人站着没动，直接在最底层掐断跟随指令！让她安心干活！
-			if (EntityMode_Farmer.mmode_Farmer.equals(theMaid.getMaidModeString()) && !isPlayerMoving(player)) {
-				return false; // 拦截成功，跟随AI进入休眠，控制权交还给农夫AI
+			// 2. 农夫模式免打扰拦截：只要是农夫，且主人站着没动，直接在最底层掐断跟随！
+			if (EntityMode_Farmer.mmode_Farmer.equals(theMaid.getMaidModeString()) && !isMoving) {
+				return false; 
 			}
 		}
-		// ==========================================
 		
 		return MaidHelper.canStartFollow(theMaid);
 	}
 
-	/**
-	 * Returns whether an in-progress EntityAIBase should continue executing
-	 */
 	public boolean continueExecuting() {
-		// 这里非常精妙：如果玩家刚才在走，女仆正在跟随；突然玩家停下了，isPlayerMoving(player) 变 false
-		// shouldExecute() 就会返回 false，从而打断 continueExecuting，女仆会立刻急刹车回去接着种地！
-		return !theMaid.getNavigator().noPath()
-				&& shouldExecute();
+		if (theMaid.getNavigator().noPath()) return false;
+
+		Entity owner = theMaid.getMaidMasterEntity();
+		if (owner instanceof EntityPlayer) {
+			EntityPlayer player = (EntityPlayer) owner;
+			boolean isMoving = checkOwnerMoving(player);
+			double distSq = theMaid.getDistanceSq(player);
+			
+			if (distSq > 1024.0D) return true;
+			
+			// 跟随途中如果玩家停下了脚步，立刻掐断跟随，让她回去干活
+			if (EntityMode_Farmer.mmode_Farmer.equals(theMaid.getMaidModeString()) && !isMoving) {
+				return false; 
+			}
+		}
+		return shouldExecute();
 	}
 
-	/**
-	 * Execute a one shot task or start executing a continuous task
-	 */
 	public void startExecuting() {
 		theOwner = theMaid.getMaidMasterEntity();
 		field_48310_h = 0;
+		if (theOwner != null) {
+			this.lastOwnerX = theOwner.posX;
+			this.lastOwnerY = theOwner.posY;
+			this.lastOwnerZ = theOwner.posZ;
+		}
 	}
 
-	/**
-	 * Resets the task
-	 */
 	public void resetTask() {
 		theMaid.setSprinting(false);
 		theOwner = null;
 		theMaid.getNavigator().clearPath();
 	}
 
-	/**
-	 * Updates the task
-	 */
 	public void updateTask() {
 		double toDistance = theMaid.getDistanceSq(theOwner);
 		
@@ -103,33 +129,21 @@ public class EntityAILMFollowOwner extends EntityAIBase implements IEntityAILM {
 			theMaid.getLookHelper().setLookPositionWithEntity(theOwner, 10F, theMaid.getVerticalFaceSpeed());
 		}
 
-		if (theMaid.isSitting()) {
-			return;
-		}
+		if (theMaid.isSitting()) return;
 		
-		// 指定距離以上ならダッシュ
-		// 水上歩行術の場合は水中でも同じ扱いとする
 		if(!theMaid.isInWater() || LMRConfig.cfg_test_water_walking){
 			theMaid.setSprinting(toDistance > sprintDist);
-			if (--field_48310_h > 0) {
-				return;
-			}
+			if (--field_48310_h > 0) return;
 		}
 
 		field_48310_h = 10;
-
 		Path entity = theMaid.getNavigator().getPathToEntityLiving(theOwner);
 		theMaid.getNavigator().setPath(entity, moveSpeed);
 	}
 
 	@Override
-	public void setEnable(boolean pFlag) {
-		isEnable = pFlag;
-	}
+	public void setEnable(boolean pFlag) { isEnable = pFlag; }
 
 	@Override
-	public boolean getEnable() {
-		return isEnable;
-	}
-
+	public boolean getEnable() { return isEnable; }
 }
