@@ -7,6 +7,7 @@ import net.minecraft.block.BlockCrops;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.ai.EntityAIMoveToBlock;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
 import net.minecraft.item.ItemDye;
@@ -42,14 +43,35 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         this.setMutexBits(3);
     }
 
+    /**
+     * 【新增】：精准检测玩家是否正在发生实质性位移
+     */
+    private boolean isPlayerMoving(EntityPlayer player) {
+        if (player == null) return false;
+        double dX = player.posX - player.prevPosX;
+        double dZ = player.posZ - player.prevPosZ;
+        return (dX * dX + dZ * dZ) > 0.001D;
+    }
+
     @Override
     public boolean shouldExecute() {
         if (!EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) || maid.isMaidWait() || maid.getCurrentEquippedItem().isEmpty()) {
             return false;
         }
         
-        if (maid.getOwner() != null && maid.getDistanceSq(maid.getOwner()) > 144.0D) {
-            return false;
+        // 【动态弹性跟随判定】
+        if (maid.getOwner() instanceof EntityPlayer) {
+            EntityPlayer owner = (EntityPlayer) maid.getOwner();
+            double distSq = maid.getDistanceSq(owner);
+            
+            // 绝对死线兜底：距离超过 32 格，绝对不种地
+            if (distSq > 1024.0D) {
+                return false;
+            }
+            // 弹性跟随：距离超过 8 格，且主人正在移动，优先跟车不干活
+            if (distSq > 64.0D && isPlayerMoving(owner)) {
+                return false;
+            }
         }
 
         if (this.customScanDelay > 0) {
@@ -107,7 +129,24 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
     @Override
     public boolean shouldContinueExecuting() {
-        return !actionCompleted && super.shouldContinueExecuting() && EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) && !maid.isMaidWait();
+        if (actionCompleted || !super.shouldContinueExecuting() || !EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) || maid.isMaidWait()) {
+            return false;
+        }
+        
+        // 【执行中打断判定】：种到一半时，如果主人走远了，也要立刻停下手中动作
+        if (maid.getOwner() instanceof EntityPlayer) {
+            EntityPlayer owner = (EntityPlayer) maid.getOwner();
+            double distSq = maid.getDistanceSq(owner);
+            
+            if (distSq > 1024.0D) {
+                return false;
+            }
+            if (distSq > 64.0D && isPlayerMoving(owner)) {
+                return false;
+            }
+        }
+        
+        return true;
     }
 
     @Override
@@ -321,4 +360,4 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         IPlantable seed = (IPlantable) seedStack.getItem();
         return soil.getBlock().canSustainPlant(soil, world, pos, EnumFacing.UP, seed);
     }
-                }
+}
