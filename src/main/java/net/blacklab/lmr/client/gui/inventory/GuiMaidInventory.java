@@ -187,7 +187,7 @@ public class GuiMaidInventory extends GuiContainer {
 		buttonList.add(boostMinus        = new GuiButtonBoostChange  (320, guiLeft + 96, guiTop - 16, "littleMaidMob.gui.button.minusboost").setInverse(true).setEnabled(false));
 		buttonList.add(boostPlus         = new GuiButtonBoostChange  (321, guiLeft+xSize-16, guiTop - 16, "littleMaidMob.gui.button.plusboost"));
 		        // ====== 上移 3.2 格，并加入抗光照污染解药 ======
-        buttonList.add(pageButton = new net.minecraft.client.gui.GuiButton(400, guiLeft + 152, guiTop + 36, 18, 18, "P1") {
+        buttonList.add(pageButton = new net.minecraft.client.gui.GuiButton(400, guiLeft + 152, guiTop + 22, 18, 18, "P1") {
             @Override
             public void drawButton(Minecraft mc, int mouseX, int mouseY, float partialTicks) {
                 if (this.visible) {
