@@ -44,13 +44,6 @@ public class ContainerInventoryLittleMaid extends Container {
                         }
                 }
                 // ====== 改造结束 ======
-		// ここがメイドの持ち物スロット
-		// Maid's inventory
-		for (int ly = 0; ly < numRows; ly++) {
-			for (int lx = 0; lx < 9; lx++) {
-				addSlotToContainer(new Slot(littlemaidInventory, lx + ly * 9, 8 + lx * 18, 76 + ly * 18));
-			}
-		}
 
 		// ここがプレイヤーのインベントリ
 		// Player's inventory
@@ -159,7 +152,7 @@ public class ContainerInventoryLittleMaid extends Container {
 			ItemStack itemstack1 = slot.getStack();
 
 			litemstack = itemstack1.copy();
-			int lline = numRows * 9;
+			int lline = 36;
 			if (pIndex < lline) {
 				if (!this.mergeItemStack(itemstack1, lline, lline + 36, true)) {
 					return ItemStack.EMPTY;
