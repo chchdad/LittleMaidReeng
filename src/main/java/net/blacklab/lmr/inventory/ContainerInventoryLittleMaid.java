@@ -28,7 +28,22 @@ public class ContainerInventoryLittleMaid extends Container {
 		numRows = 2;
 		littlemaidInventory = maidInventory;
 		littlemaidInventory.openInventory(owner.maidAvatar);
-
+// ====== 多页背包注册 ======
+                // 【第一页】前 18 格 (原版格子，正常显示)
+                for (int ly = 0; ly < 2; ly++) {
+                        for (int lx = 0; lx < 9; lx++) {
+                                addSlotToContainer(new Slot(littlemaidInventory, lx + ly * 9, 8 + lx * 18, 76 + ly * 18));
+                        }
+                }
+                
+                // 【第二页】后 18 格 (扩容格子，初始化时将 X 坐标设为 -999，直接放到屏幕外隐藏)
+                for (int ly = 0; ly < 2; ly++) {
+                        for (int lx = 0; lx < 9; lx++) {
+                                // 注意这里的起始索引是 18，X 坐标是 -999
+                                addSlotToContainer(new Slot(littlemaidInventory, 18 + lx + ly * 9, -999, 76 + ly * 18));
+                        }
+                }
+                // ====== 改造结束 ======
 		// ここがメイドの持ち物スロット
 		// Maid's inventory
 		for (int ly = 0; ly < numRows; ly++) {
