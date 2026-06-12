@@ -187,7 +187,6 @@ public class GuiMaidInventory extends GuiContainer {
 		buttonList.add(boostMinus        = new GuiButtonBoostChange  (320, guiLeft + 96, guiTop - 16, "littleMaidMob.gui.button.minusboost").setInverse(true).setEnabled(false));
 		buttonList.add(boostPlus         = new GuiButtonBoostChange  (321, guiLeft+xSize-16, guiTop - 16, "littleMaidMob.gui.button.plusboost"));
 		        // ====== 注册翻页按钮 (ID: 400) ======
-               // ====== 注册翻页按钮 (ID: 400) 并强制洗白颜色 ======
         buttonList.add(pageButton = new net.minecraft.client.gui.GuiButton(400, guiLeft + 152, guiTop + 94, 18, 18, "P1") {
             @Override
             public void drawButton(Minecraft mc, int mouseX, int mouseY, float partialTicks) {
@@ -693,15 +692,14 @@ public class GuiMaidInventory extends GuiContainer {
 		int booster = entitylittlemaid.getExperienceHandler().getExpBooster();
 		switch (par1GuiButton.id) {
 				        // ====== 处理翻页点击 ======
-        case 400:
+                case 400:
             // 0 变 1，1 变 0
             maidInvPage = 1 - maidInvPage; 
-            // 更新按钮文本
-            pageButton.displayString = "Page " + (maidInvPage + 1); 
+            // 更新按钮文本 (改成 P1 / P2 防止字超出去)
+            pageButton.displayString = "P" + (maidInvPage + 1); 
             // 瞬间切换底层格子坐标！
             updateMaidSlots(); 
             break;
-
 
 		case 100 :
 			entitylittlemaid.setNextTexturePackege();
