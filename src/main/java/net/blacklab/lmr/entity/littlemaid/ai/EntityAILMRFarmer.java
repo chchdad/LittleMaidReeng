@@ -87,7 +87,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 for (int z = -range; z <= range; z++) {
                     BlockPos pos = center.add(x, y, z);
                     
-                    // 【安全栓：雷达越界保护】：绝对禁止扫描会导致女仆跨越 30 格安全线的目标，防止强制瞬移打断！
+                    // 【安全栓：雷达越界保护】：绝对禁止扫描会导致女仆跨越 30 格安全线的目标
                     if (owner != null && owner.getDistanceSqToCenter(pos) > 900.0D) {
                         continue; 
                     }
@@ -151,7 +151,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         this.checkStuckTimer = 0;
         this.realStuckCount = 0;
         
-        EntityPlayer owner = (EntityPlayer) maid.getOwner();
+        EntityPlayer owner = null;
+        if (maid.getOwner() instanceof EntityPlayer) {
+            owner = (EntityPlayer) maid.getOwner();
+        }
         if (owner != null) {
             this.lastOwnerX = owner.posX;
             this.lastOwnerY = owner.posY;
@@ -175,6 +178,35 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         }
         
         return this.shouldMoveTo(maid.getEntityWorld(), this.destinationBlock);
+    }
+
+    // =================================================================
+    // 【核心修复】：补回了遗失的方块属性鉴定器
+    // =================================================================
+    @Override
+    protected boolean shouldMoveTo(World worldIn, BlockPos pos) {
+        IBlockState state = worldIn.getBlockState(pos);
+        Block block = state.getBlock();
+
+        if (block == Blocks.REEDS && worldIn.getBlockState(pos.down()).getBlock() == Blocks.REEDS) return true;
+        if (block instanceof BlockCrops && ((BlockCrops) block).isMaxAge(state)) return true;
+        if (block instanceof BlockCrops && !((BlockCrops) block).isMaxAge(state)) {
+            for (int i = 0; i < maid.maidInventory.getSizeInventory(); i++) {
+                ItemStack stack = maid.maidInventory.getStackInSlot(i);
+                if (!stack.isEmpty() && stack.getItem() == Items.DYE && stack.getMetadata() == 15) return true;
+            }
+        }
+        if (block == Blocks.FARMLAND && worldIn.isAirBlock(pos.up())) {
+            int seedIndex = getHadSeedIndex();
+            if (seedIndex != -1) {
+                ItemStack seedStack = maid.maidInventory.getStackInSlot(seedIndex);
+                if (isFarmedLand(worldIn, pos, seedStack)) return true;
+            }
+        }
+        
+        if (isUnfarmedLand(worldIn, pos)) return true;
+
+        return false;
     }
 
     @Override
