@@ -37,6 +37,33 @@ import net.minecraftforge.fml.relauncher.SideOnly;
 
 @SideOnly(Side.CLIENT)
 public class GuiMaidInventory extends GuiContainer {
+	    //  翻页系统变量 
+    private int maidInvPage = 0;
+    private net.minecraft.client.gui.GuiButton pageButton;
+
+    // 修改格子坐标
+    private void updateMaidSlots() {
+        // 在 Container 中，前 36 个槽位是女仆主背包？
+        for (int i = 0; i < 36; i++) {
+            net.minecraft.inventory.Slot slot = this.inventorySlots.inventorySlots.get(i);
+            if (maidInvPage == 0) {
+                // 第一页：显示 0~17 格，放逐 18~35 格
+                if (i < 18) {
+                    slot.xPos = 8 + (i % 9) * 18; // 恢复原位
+                } else {
+                    slot.xPos = -999; // 滚出屏幕
+                }
+            } else {
+                // 第二页：放逐 0~17 格，显示 18~35 格
+                if (i < 18) {
+                    slot.xPos = -999; // 滚出屏幕
+                } else {
+                    slot.xPos = 8 + (i % 9) * 18; // 恢复原位
+                }
+            }
+        }
+    }
+
 	// Field
 	private Random rand;
 	private IInventory playerInventory;
