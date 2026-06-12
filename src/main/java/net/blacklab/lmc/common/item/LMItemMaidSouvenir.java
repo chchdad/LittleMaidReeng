@@ -31,11 +31,25 @@ import net.minecraft.world.WorldServer;
 import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
+import net.minecraftforge.fml.common.registry.EntityEntry;
+import net.minecraftforge.fml.common.registry.EntityEntryBuilder;
+import net.minecraftforge.event.RegistryEvent;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 
-/**
- * メイドの土産 (在手捏碎超度 + 强制发光 + 恶魂式真实岩浆悬浮修正版)
- */
+@EventBusSubscriber
 public class LMItemMaidSouvenir extends Item {
+	@SubscribeEvent
+public static void registerEntities(RegistryEvent.Register<EntityEntry> event) {
+    // 注册女仆遗物实体，赋予它合法的身份证！
+    event.getRegistry().register(EntityEntryBuilder.create()
+        .entity(LMItemMaidSouvenir.EntityItemMaidSouvenir.class)
+        .id(new ResourceLocation("lmr", "maid_souvenir_entity"), 114514) // 114514是内部ID，确保不和其他实体冲突即可
+        .name("maid_souvenir_entity")
+        .tracker(64, 20, true) // 追踪距离、更新频率、是否发送速度包
+        .build());
+}
 
 	public LMItemMaidSouvenir() {
 		this.setMaxStackSize(1);
