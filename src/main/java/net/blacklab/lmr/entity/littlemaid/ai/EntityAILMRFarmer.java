@@ -31,7 +31,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private int customScanDelay = 0;
     private boolean actionCompleted = false;
     
-    // 【新增：动作硬直冷却器】
+    // 【动作硬直冷却器】
     private int actionCooldown = 0;
     
     // 【物理防卡死系统变量】
@@ -90,7 +90,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 for (int z = -range; z <= range; z++) {
                     BlockPos pos = center.add(x, y, z);
                     
-                    if (owner != null && owner.getDistanceSqToCenter(pos) > 900.0D) {
+                    // 【安全栓更新】：缩小为 25 格雷达限界！(25的平方为 625.0D)
+                    // 留出 7 格的寻路缓冲带，绝对防止绕路时触发 32 格强行传送！
+                    if (owner != null && owner.getDistanceSqToCenter(pos) > 625.0D) {
                         continue; 
                     }
                     
@@ -107,6 +109,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             for (BlockPos target : validTargets) {
                 if (maid.getNavigator().getPathToPos(target.up()) != null || maid.getDistanceSqToCenter(target) < 4.5D) {
                     this.destinationBlock = target;
+                    System.out.println("[LMR-FARM-DEBUG] 雷达锁定新目标: " + target);
                     maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.moveSpeed);
                     return true;
                 }
@@ -146,7 +149,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     @Override
     public void startExecuting() {
         this.actionCompleted = false; 
-        this.actionCooldown = 0; // 启动时重置硬直
+        this.actionCooldown = 0; 
         this.lastPosX = maid.posX;
         this.lastPosY = maid.posY;
         this.lastPosZ = maid.posZ;
@@ -179,7 +182,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             if (distSq > 64.0D && isMoving) return false;
         }
         
-        // 只要在硬直冷却中，无条件维持任务不中断
         if (this.actionCooldown > 0) return true;
         
         return this.shouldMoveTo(maid.getEntityWorld(), this.destinationBlock);
@@ -213,12 +215,8 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
     @Override
     public void updateTask() {
-        // =========================================================
-        // 【核心拟真机制】：动作硬直判定
-        // =========================================================
         if (this.actionCooldown > 0) {
             this.actionCooldown--;
-            // 硬直结束的瞬间，立刻扫描下一块地！
             if (this.actionCooldown == 0) {
                 if (searchNextTarget()) {
                     this.realStuckCount = 0;
@@ -231,7 +229,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     this.customScanDelay = 20; 
                 }
             }
-            return; // 罚站期间直接 return，不准位移，让动画播完
+            return; 
         }
 
         double dist = maid.getDistanceSqToCenter(this.destinationBlock);
@@ -244,8 +242,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         
         if (dist < 4.5D) {
             executeAction();
-            
-            // 【触发硬直】：强行停止脚底抹油，并进入 12 游戏刻 (0.6秒) 的罚站状态
             maid.getNavigator().clearPath();
             this.actionCooldown = 12;
             
@@ -270,8 +266,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 if (this.realStuckCount >= 3) {
                     System.out.println("[LMR-FARM-DEBUG] 卡死确认！启动长臂猿模式！");
                     executeAction();
-                    
-                    // 即使是卡死隔空作业，也要遵守劳动法，硬直 0.6 秒！
                     maid.getNavigator().clearPath();
                     this.actionCooldown = 12;
                     return; 
