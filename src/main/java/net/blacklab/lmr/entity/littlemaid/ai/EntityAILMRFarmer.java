@@ -36,6 +36,12 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private int checkStuckTimer = 0;
     private int realStuckCount = 0;
 
+    // ====== 真实移动监测系统 ======
+    private double lastOwnerX, lastOwnerY, lastOwnerZ;
+    private boolean isOwnerMoving = false;
+    private long lastCheckTime = 0;
+    private int ownerStopTicks = 0;
+
     public EntityAILMRFarmer(EntityLittleMaid entityMaid, double speedIn) {
         super(entityMaid, speedIn, 16);
         this.maid = entityMaid;
@@ -43,51 +49,49 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         this.setMutexBits(3);
     }
 
-    /**
-     * 【新增】：精准检测玩家是否正在发生实质性位移
-     */
-    private boolean isPlayerMoving(EntityPlayer player) {
+    private boolean checkOwnerMoving(EntityPlayer player) {
         if (player == null) return false;
-        double dX = player.posX - player.prevPosX;
-        double dZ = player.posZ - player.prevPosZ;
-        return (dX * dX + dZ * dZ) > 0.001D;
+        long currentTime = maid.getEntityWorld().getTotalWorldTime();
+        if (currentTime == lastCheckTime) return isOwnerMoving;
+
+        double dX = player.posX - this.lastOwnerX;
+        double dZ = player.posZ - this.lastOwnerZ;
+        this.lastOwnerX = player.posX;
+        this.lastOwnerY = player.posY;
+        this.lastOwnerZ = player.posZ;
+        lastCheckTime = currentTime;
+
+        if (dX * dX + dZ * dZ > 0.005D) {
+            ownerStopTicks = 0;
+            isOwnerMoving = true;
+        } else {
+            ownerStopTicks++;
+            isOwnerMoving = ownerStopTicks < 10;
+        }
+        return isOwnerMoving;
     }
 
-    @Override
-    public boolean shouldExecute() {
-        if (!EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) || maid.isMaidWait() || maid.getCurrentEquippedItem().isEmpty()) {
-            return false;
-        }
-        
-        // 【动态弹性跟随判定】
-        if (maid.getOwner() instanceof EntityPlayer) {
-            EntityPlayer owner = (EntityPlayer) maid.getOwner();
-            double distSq = maid.getDistanceSq(owner);
-            
-            // 绝对死线兜底：距离超过 32 格，绝对不种地
-            if (distSq > 1024.0D) {
-                return false;
-            }
-            // 弹性跟随：距离超过 8 格，且主人正在移动，优先跟车不干活
-            if (distSq > 64.0D && isPlayerMoving(owner)) {
-                return false;
-            }
-        }
-
-        if (this.customScanDelay > 0) {
-            this.customScanDelay--;
-            return false;
-        }
-
+    private boolean searchNextTarget() {
         List<BlockPos> validTargets = new ArrayList<>();
         BlockPos center = new BlockPos(maid);
         World world = maid.getEntityWorld();
         int range = 16;
+        
+        EntityPlayer owner = null;
+        if (maid.getOwner() instanceof EntityPlayer) {
+            owner = (EntityPlayer) maid.getOwner();
+        }
 
         for (int x = -range; x <= range; x++) {
             for (int y = -2; y <= 2; y++) {
                 for (int z = -range; z <= range; z++) {
                     BlockPos pos = center.add(x, y, z);
+                    
+                    // 【安全栓：雷达越界保护】：绝对禁止扫描会导致女仆跨越 30 格安全线的目标，防止强制瞬移打断！
+                    if (owner != null && owner.getDistanceSqToCenter(pos) > 900.0D) {
+                        continue; 
+                    }
+                    
                     if (this.shouldMoveTo(world, pos)) {
                         validTargets.add(pos);
                     }
@@ -101,114 +105,111 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             for (BlockPos target : validTargets) {
                 if (maid.getNavigator().getPathToPos(target.up()) != null || maid.getDistanceSqToCenter(target) < 4.5D) {
                     this.destinationBlock = target;
-                    // 给寻找新目标增加极小的随机延迟错峰，防止同刻并发
-                    this.customScanDelay = 10 + maid.getRNG().nextInt(20);
-                    System.out.println("[LMR-FARM-DEBUG] 3D雷达锁定目标: " + target);
-                    
-                    // 启动时默认给高速档
+                    System.out.println("[LMR-FARM-DEBUG] 雷达锁定新目标: " + target);
                     maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.moveSpeed);
                     return true;
                 }
             }
         }
+        return false;
+    }
 
-        this.customScanDelay = 20;
+    @Override
+    public boolean shouldExecute() {
+        if (!EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) || maid.isMaidWait() || maid.getCurrentEquippedItem().isEmpty()) {
+            return false;
+        }
+        
+        if (maid.getOwner() instanceof EntityPlayer) {
+            EntityPlayer owner = (EntityPlayer) maid.getOwner();
+            boolean isMoving = checkOwnerMoving(owner);
+            double distSq = maid.getDistanceSq(owner);
+            
+            if (distSq > 1024.0D) return false; 
+            if (distSq > 64.0D && isMoving) return false; 
+        }
+
+        if (this.customScanDelay > 0) {
+            this.customScanDelay--;
+            return false;
+        }
+
+        if (searchNextTarget()) {
+            return true;
+        }
+
+        this.customScanDelay = 20; 
         return false;
     }
 
     @Override
     public void startExecuting() {
-        super.startExecuting();
         this.actionCompleted = false; 
-        
         this.lastPosX = maid.posX;
         this.lastPosY = maid.posY;
         this.lastPosZ = maid.posZ;
         this.checkStuckTimer = 0;
         this.realStuckCount = 0;
+        
+        EntityPlayer owner = (EntityPlayer) maid.getOwner();
+        if (owner != null) {
+            this.lastOwnerX = owner.posX;
+            this.lastOwnerY = owner.posY;
+            this.lastOwnerZ = owner.posZ;
+        }
     }
 
     @Override
     public boolean shouldContinueExecuting() {
-        if (actionCompleted || !super.shouldContinueExecuting() || !EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) || maid.isMaidWait()) {
+        if (actionCompleted || !EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) || maid.isMaidWait()) {
             return false;
         }
         
-        // 【执行中打断判定】：种到一半时，如果主人走远了，也要立刻停下手中动作
         if (maid.getOwner() instanceof EntityPlayer) {
             EntityPlayer owner = (EntityPlayer) maid.getOwner();
+            boolean isMoving = checkOwnerMoving(owner);
             double distSq = maid.getDistanceSq(owner);
             
-            if (distSq > 1024.0D) {
-                return false;
-            }
-            if (distSq > 64.0D && isPlayerMoving(owner)) {
-                return false;
-            }
+            if (distSq > 1024.0D) return false;
+            if (distSq > 64.0D && isMoving) return false;
         }
         
-        return true;
-    }
-
-    @Override
-    protected boolean shouldMoveTo(World worldIn, BlockPos pos) {
-        IBlockState state = worldIn.getBlockState(pos);
-        Block block = state.getBlock();
-
-        if (block == Blocks.REEDS && worldIn.getBlockState(pos.down()).getBlock() == Blocks.REEDS) return true;
-        if (block instanceof BlockCrops && ((BlockCrops) block).isMaxAge(state)) return true;
-        if (block instanceof BlockCrops && !((BlockCrops) block).isMaxAge(state)) {
-            for (int i = 0; i < maid.maidInventory.getSizeInventory(); i++) {
-                ItemStack stack = maid.maidInventory.getStackInSlot(i);
-                if (!stack.isEmpty() && stack.getItem() == Items.DYE && stack.getMetadata() == 15) return true;
-            }
-        }
-        if (block == Blocks.FARMLAND && worldIn.isAirBlock(pos.up())) {
-            int seedIndex = getHadSeedIndex();
-            if (seedIndex != -1) {
-                ItemStack seedStack = maid.maidInventory.getStackInSlot(seedIndex);
-                if (isFarmedLand(worldIn, pos, seedStack)) return true;
-            }
-        }
-        
-        if (isUnfarmedLand(worldIn, pos)) return true;
-
-        return false;
+        return this.shouldMoveTo(maid.getEntityWorld(), this.destinationBlock);
     }
 
     @Override
     public void updateTask() {
-        super.updateTask();
-        
         double dist = maid.getDistanceSqToCenter(this.destinationBlock);
 
-        // 【智能二挡变速箱】：防鬼步滑行
         if (dist > 16.0D) { 
             maid.getNavigator().setSpeed(1.2D); 
         } else {            
             maid.getNavigator().setSpeed(1.0D); 
         }
         
-        // 走到 4.5 范围内执行
         if (dist < 4.5D) {
-            System.out.println("[LMR-FARM-DEBUG] 抵达目标 " + this.destinationBlock + "，正常执行！");
             executeAction();
-            this.actionCompleted = true;
-            // 【核心修复】：将冷却完全清零，无缝衔接下一块地，剥夺跟随AI的抢夺机会！
-            this.customScanDelay = 0; 
-            this.realStuckCount = 0; 
+            
+            if (searchNextTarget()) {
+                this.realStuckCount = 0;
+                this.checkStuckTimer = 0;
+                this.lastPosX = maid.posX;
+                this.lastPosY = maid.posY;
+                this.lastPosZ = maid.posZ;
+            } else {
+                this.actionCompleted = true;
+                this.customScanDelay = 20; 
+            }
+            
         } else {
-            // 【硬核物理防卡死检测】
             this.checkStuckTimer++;
             if (this.checkStuckTimer >= 20) { 
-                
                 double dX = maid.posX - this.lastPosX;
                 double dZ = maid.posZ - this.lastPosZ;
                 double movedHorizontalSq = (dX * dX) + (dZ * dZ);
                 
                 if (movedHorizontalSq < 0.05D) {
                     this.realStuckCount++;
-                    System.out.println("[LMR-FARM-DEBUG] 发现原地跳脚，卡死警告等级: " + this.realStuckCount);
                 } else {
                     this.realStuckCount = 0;
                 }
@@ -219,16 +220,28 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 this.checkStuckTimer = 0;
                 
                 if (this.realStuckCount >= 3) {
-                    System.out.println("[LMR-FARM-DEBUG] 水平位移监测确认卡死！启动长臂猿原力模式！");
+                    System.out.println("[LMR-FARM-DEBUG] 卡死确认！启动长臂猿模式，强行完工并寻找下个目标！");
                     executeAction();
-                    this.actionCompleted = true;
-                    // 【核心修复】：卡死原力作业完毕后同样清零冷却，立刻投入下一次判定！
-                    this.customScanDelay = 0; 
+                    
+                    if (searchNextTarget()) {
+                        this.realStuckCount = 0;
+                        this.checkStuckTimer = 0;
+                        this.lastPosX = maid.posX;
+                        this.lastPosY = maid.posY;
+                        this.lastPosZ = maid.posZ;
+                    } else {
+                        this.actionCompleted = true;
+                        this.customScanDelay = 20;
+                    }
                     return; 
                 }
             }
 
             this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
+            
+            if (maid.getNavigator().noPath()) {
+                maid.getNavigator().tryMoveToXYZ(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, this.moveSpeed);
+            }
         }
     }
 
@@ -242,12 +255,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (block == Blocks.REEDS && world.getBlockState(pos.down()).getBlock() == Blocks.REEDS) {
             world.destroyBlock(pos, true);
             maid.setSwing(10, EnumSound.FARMER_HARVEST, false);
-            System.out.println("[LMR-FARM-DEBUG] 动作：收甘蔗");
         }
         else if (block instanceof BlockCrops && ((BlockCrops) block).isMaxAge(state)) {
             world.destroyBlock(pos, true);
             maid.setSwing(10, EnumSound.FARMER_HARVEST, false);
-            System.out.println("[LMR-FARM-DEBUG] 动作：收割成熟庄稼");
         }
         else if (block instanceof BlockCrops && !((BlockCrops) block).isMaxAge(state)) {
             for (int i = 0; i < maid.maidInventory.getSizeInventory(); i++) {
@@ -256,7 +267,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     if (ItemDye.applyBonemeal(stackInSlot, world, pos, maid.maidAvatar, EnumHand.MAIN_HAND)) {
                         maid.setSwing(10, EnumSound.NULL, false);
                         world.playEvent(2005, pos, 0); 
-                        System.out.println("[LMR-FARM-DEBUG] 动作：骨粉催熟");
                         break;
                     }
                 }
@@ -275,7 +285,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     maid.maidInventory.setCurrentItemIndex(svCurrentIdx);
                     maid.setSwing(10, EnumSound.FARMER_PLANT, false);
                     if (seedStack.getCount() <= 0) maid.maidInventory.setInventorySlotContents(seedIndex, ItemStack.EMPTY);
-                    System.out.println("[LMR-FARM-DEBUG] 动作：播种");
                 }
             }
         }
@@ -283,7 +292,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             if (curStack.onItemUse(maid.maidAvatar, world, pos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 1.0F, 0.5F) == EnumActionResult.SUCCESS) {
                 maid.setSwing(10, EnumSound.FARMER_FARM, false);
                 curStack.damageItem(1, maid.maidAvatar); 
-                System.out.println("[LMR-FARM-DEBUG] 动作：开垦荒地");
             }
         }
     }
@@ -311,7 +319,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         }
         return -1;
     }
-
 
     private boolean isBlockWatered(World world, BlockPos pos) {
         int radius = 4;
