@@ -101,6 +101,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             for (BlockPos target : validTargets) {
                 if (maid.getNavigator().getPathToPos(target.up()) != null || maid.getDistanceSqToCenter(target) < 4.5D) {
                     this.destinationBlock = target;
+                    // 给寻找新目标增加极小的随机延迟错峰，防止同刻并发
                     this.customScanDelay = 10 + maid.getRNG().nextInt(20);
                     System.out.println("[LMR-FARM-DEBUG] 3D雷达锁定目标: " + target);
                     
@@ -182,10 +183,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         double dist = maid.getDistanceSqToCenter(this.destinationBlock);
 
         // 【智能二挡变速箱】：防鬼步滑行
-        if (dist > 16.0D) { // 16.0D 就是 4 格距离的平方
-            maid.getNavigator().setSpeed(1.2D); // 大于 4 格，1.2 倍速冲刺！
+        if (dist > 16.0D) { 
+            maid.getNavigator().setSpeed(1.2D); 
         } else {            
-            maid.getNavigator().setSpeed(1.0D); // 进入 4 格内，平滑降速到 1.0 标准步速微调
+            maid.getNavigator().setSpeed(1.0D); 
         }
         
         // 走到 4.5 范围内执行
@@ -193,38 +194,36 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             System.out.println("[LMR-FARM-DEBUG] 抵达目标 " + this.destinationBlock + "，正常执行！");
             executeAction();
             this.actionCompleted = true;
-            this.customScanDelay = 5; 
-            this.realStuckCount = 0; // 重置
+            // 【核心修复】：将冷却完全清零，无缝衔接下一块地，剥夺跟随AI的抢夺机会！
+            this.customScanDelay = 0; 
+            this.realStuckCount = 0; 
         } else {
             // 【硬核物理防卡死检测】
             this.checkStuckTimer++;
-            if (this.checkStuckTimer >= 20) { // 每 1 秒检查一次位移
+            if (this.checkStuckTimer >= 20) { 
                 
-                // 【核心修改】：彻底无视 Y 轴跳跃，只算 X 和 Z 的水平直线距离！
                 double dX = maid.posX - this.lastPosX;
                 double dZ = maid.posZ - this.lastPosZ;
                 double movedHorizontalSq = (dX * dX) + (dZ * dZ);
                 
-                // 如果水平移动微乎其微 (距离不到 0.22 格)，说明在原地跳脚死磕
                 if (movedHorizontalSq < 0.05D) {
                     this.realStuckCount++;
                     System.out.println("[LMR-FARM-DEBUG] 发现原地跳脚，卡死警告等级: " + this.realStuckCount);
                 } else {
-                    // 如果在走动，清零卡死警告
                     this.realStuckCount = 0;
                 }
                 
                 this.lastPosX = maid.posX;
-                this.lastPosY = maid.posY; // 虽然更新 Y，但不参与计算
+                this.lastPosY = maid.posY; 
                 this.lastPosZ = maid.posZ;
                 this.checkStuckTimer = 0;
                 
-                // 连续 3 秒水平方向没走出半步
                 if (this.realStuckCount >= 3) {
                     System.out.println("[LMR-FARM-DEBUG] 水平位移监测确认卡死！启动长臂猿原力模式！");
                     executeAction();
                     this.actionCompleted = true;
-                    this.customScanDelay = 5; 
+                    // 【核心修复】：卡死原力作业完毕后同样清零冷却，立刻投入下一次判定！
+                    this.customScanDelay = 0; 
                     return; 
                 }
             }
@@ -290,34 +289,26 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     }
 
     private int getHadSeedIndex() {
-        // 1. 获取背包第一格 (Slot 0) 的物品，判断它是不是箱子
         ItemStack firstSlot = maid.maidInventory.getStackInSlot(0);
         boolean isRandomMode = !firstSlot.isEmpty() && firstSlot.getItem() == net.minecraft.item.Item.getItemFromBlock(Blocks.CHEST);
 
         if (isRandomMode) {
-            // ====== 模式 A：盲盒模式 (随机抽取种子) ======
             List<Integer> availableSeedSlots = new ArrayList<>();
-            // 从下标 1 开始遍历，跳过第 0 格当开关的箱子
             for (int i = 1; i < maid.maidInventory.getSizeInventory(); i++) {
                 ItemStack pStack = maid.maidInventory.getStackInSlot(i);
                 if (!pStack.isEmpty() && pStack.getItem() instanceof IPlantable) {
                     availableSeedSlots.add(i);
                 }
             }
-            // 如果找到至少一种种子，利用随机数返回其中一个格子的下标
             if (!availableSeedSlots.isEmpty()) {
                 return availableSeedSlots.get(maid.getRNG().nextInt(availableSeedSlots.size()));
             }
         } else {
-            // ====== 模式 B：强迫症模式 (从左到右单一种植) ======
             for (int i = 0; i < maid.maidInventory.getSizeInventory(); i++) {
                 ItemStack pStack = maid.maidInventory.getStackInSlot(i);
-                // 遇到第一个种子就直接返回，实现连片单一种植
                 if (!pStack.isEmpty() && pStack.getItem() instanceof IPlantable) return i;
             }
         }
-        
-        // 如果背包里完全没种子，返回 -1
         return -1;
     }
 
