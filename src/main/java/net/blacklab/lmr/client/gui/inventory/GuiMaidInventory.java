@@ -186,17 +186,19 @@ public class GuiMaidInventory extends GuiContainer {
 //		buttonList.add(swimbutton        = new GuiButtonSwimToggle   (310, guiLeft + 80, guiTop - 16, "littleMaidMob.gui.toggle.swim"      , entitylittlemaid.isSwimmingEnabled()));
 		buttonList.add(boostMinus        = new GuiButtonBoostChange  (320, guiLeft + 96, guiTop - 16, "littleMaidMob.gui.button.minusboost").setInverse(true).setEnabled(false));
 		buttonList.add(boostPlus         = new GuiButtonBoostChange  (321, guiLeft+xSize-16, guiTop - 16, "littleMaidMob.gui.button.plusboost"));
-		        // ====== 注册翻页按钮 (ID: 400) ======
-        buttonList.add(pageButton = new net.minecraft.client.gui.GuiButton(400, guiLeft + 152, guiTop + 94, 18, 18, "P1") {
+		        // ====== 上移 3.2 格，并加入抗光照污染解药 ======
+        buttonList.add(pageButton = new net.minecraft.client.gui.GuiButton(400, guiLeft + 152, guiTop + 36, 18, 18, "P1") {
             @Override
             public void drawButton(Minecraft mc, int mouseX, int mouseY, float partialTicks) {
                 if (this.visible) {
-                    // 强制将渲染画笔洗成纯白，彻底解决按钮被染黑的问题！
+                    // 核心解药：强行关闭 3D 光照，按钮瞬间恢复原本的亮灰色！
+                    GlStateManager.disableLighting(); 
                     GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
                 }
                 super.drawButton(mc, mouseX, mouseY, partialTicks);
             }
         });
+
         
         // 打开界面时，强制刷新一次格子坐标
         updateMaidSlots();
