@@ -681,6 +681,17 @@ public class GuiMaidInventory extends GuiContainer {
 	protected void actionPerformed(GuiButton par1GuiButton) {
 		int booster = entitylittlemaid.getExperienceHandler().getExpBooster();
 		switch (par1GuiButton.id) {
+				        // ====== 处理翻页点击 ======
+        case 400:
+            // 0 变 1，1 变 0
+            maidInvPage = 1 - maidInvPage; 
+            // 更新按钮文本
+            pageButton.displayString = "Page " + (maidInvPage + 1); 
+            // 瞬间切换底层格子坐标！
+            updateMaidSlots(); 
+            break;
+
+
 		case 100 :
 			entitylittlemaid.setNextTexturePackege();
 //			entitylittlemaid.setTextureNames();
