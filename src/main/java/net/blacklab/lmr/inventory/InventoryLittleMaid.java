@@ -41,7 +41,7 @@ public class InventoryLittleMaid extends InventoryPlayer {
 	/**
 	 * 最大インベントリ数
 	 */
-	public static final int maxInventorySize = 18;
+	public static final int maxInventorySize = 36;
 	/**
 	 * Offset of mainHand slot's index
 	 */
