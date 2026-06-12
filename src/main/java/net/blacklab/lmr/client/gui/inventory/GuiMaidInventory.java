@@ -187,7 +187,7 @@ public class GuiMaidInventory extends GuiContainer {
 		buttonList.add(boostMinus        = new GuiButtonBoostChange  (320, guiLeft + 96, guiTop - 16, "littleMaidMob.gui.button.minusboost").setInverse(true).setEnabled(false));
 		buttonList.add(boostPlus         = new GuiButtonBoostChange  (321, guiLeft+xSize-16, guiTop - 16, "littleMaidMob.gui.button.plusboost"));
 		        // ====== 注册翻页按钮 (ID: 400) ======
-        buttonList.add(pageButton = new net.minecraft.client.gui.GuiButton(400, guiLeft + 120, guiTop + 54, 40, 20, "Page 1"));
+        buttonList.add(pageButton = new net.minecraft.client.gui.GuiButton(400, guiLeft + 152, guiTop + 94, 18, 18, "P1"));
         
         // 打开界面时，强制刷新一次格子坐标
         updateMaidSlots();
