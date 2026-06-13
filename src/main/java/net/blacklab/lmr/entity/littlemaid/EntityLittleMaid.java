@@ -1706,8 +1706,8 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 
         if (flag) {
             
-            this.setSwing(20, this.isBloodsuck() ? net.blacklab.lmr.network.LMRMessage.EnumSound.ATTACK_BLOODSUCK : net.blacklab.lmr.network.LMRMessage.EnumSound.ATTACK, !this.isPlaying());
-        }
+            this.setSwing(20, this.isBloodsuck() ? EnumSound.ATTACK_BLOODSUCK : EnumSound.ATTACK, !this.isPlaying());
+            }
 			
 
         if (flag) {
