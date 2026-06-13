@@ -238,23 +238,21 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
                                 //theMaid.moveback();
                 if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
-                        // 【必不可少的原版逻辑：打完后重置目标和寻路】
+                        // 対象を再設定させる
                         theMaid.setAttackTarget(null);
                         theMaid.setRevengeTarget(null);
                         theMaid.getNavigator().clearPath();
                 }
                 return;
-        } // 这个是 public void updateTask() 方法结束的大括号
+        } // 结束 updateTask() 方法的大括号
 
+        @Override
+        public void setEnable(boolean pFlag) {
+                fEnable = pFlag;
+        }
 
-	@Override
-	public void setEnable(boolean pFlag) {
-		fEnable = pFlag;
-	}
-
-	@Override
-	public boolean getEnable() {
-		return fEnable;
-	}
-
-}
+        @Override
+        public boolean getEnable() {
+                return fEnable;
+        }
+} // 结束整个 EntityAILMAttackOnCollide 类的大括号
