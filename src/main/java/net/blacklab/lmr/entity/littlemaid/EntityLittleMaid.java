@@ -1668,13 +1668,27 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
             if (!this.onGround && this.fallDistance > 0.0F && !this.isInWater() && !this.isOnLadder() && !this.isRiding()) {
                 isCrit = true; 
             } 
-            // 判定 B：10% 概率主动跳劈
+                        // 判定 B：10% 概率触发【突进式跳劈】 (类似蜘蛛猛扑)
             else if (this.onGround && this.rand.nextFloat() < 0.1F) {
                 isCrit = true;
-                this.motionY = 0.4D; 
-                this.isAirBorne = true;
-                this.velocityChanged = true; 
+                
+                // 1. 稍微降低一点Y轴高度（0.4D是原版跳跃，0.35D会让突进的轨迹更平滑、更像拔刀剑的平A位移）
+                this.motionY = 0.35D; 
+                
+                // 2. 获取女仆与怪物之间的 X/Z 轴坐标差
+                double dX = par1Entity.posX - this.posX;
+                double dZ = par1Entity.posZ - this.posZ;
+                
+                // 计算两点之间的水平直线距离
+                double distance2D = (double)net.minecraft.util.math.MathHelper.sqrt(dX * dX + dZ * dZ);
+                
+                // 3. 注入向前猛扑的冲力！(0.5D 是突进速度，你可以根据手感微调，0.5 已经有很明显的扑击感了)
+                if (distance2D >= 0.0001D) {
+                    this.motionX = (dX / distance2D) * 0.5D;
+                    this.motionZ = (dZ / distance2D) * 0.5D;
+                }
             }
+
         }
 
         if (isCrit) {
@@ -1687,13 +1701,14 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
             i += net.minecraft.enchantment.EnchantmentHelper.getKnockbackModifier(this);
         }
 
-        // 2. 造成伤害
+                // 2. 造成伤害
         boolean flag = par1Entity.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(this), f);
-		
-		if (flag) {
-            // --- 【强制播放挥动武器动画】 ---
-            this.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
-			   }
+
+        if (flag) {
+            
+            this.setSwing(20, this.isBloodsuck() ? net.blacklab.lmr.network.LMRMessage.EnumSound.ATTACK_BLOODSUCK : net.blacklab.lmr.network.LMRMessage.EnumSound.ATTACK, !this.isPlaying());
+        }
+			
 
         if (flag) {
             // --- 【感官反馈】 ---
