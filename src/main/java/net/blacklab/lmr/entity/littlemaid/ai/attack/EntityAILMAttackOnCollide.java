@@ -31,6 +31,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected Path pathToTarget;
 	protected int rerouteTimer;
 	protected double attackRange;
+	protected int retreatTimer = 0; 
 
 	public boolean isGuard;
 
