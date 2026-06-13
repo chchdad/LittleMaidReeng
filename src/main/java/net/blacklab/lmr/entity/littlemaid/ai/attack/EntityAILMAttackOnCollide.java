@@ -140,14 +140,21 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	}
 
 	@Override
-	public void updateTask() {
-		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+	        public void updateTask() {
+                theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
-//		if ((isReroute || theMaid.getEntitySenses().canSee(entityTarget)) && --rerouteTimer <= 0) {
-//			// リルート
-//			rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
-//			theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed);
-//		}
+                // =======================================================
+                // 【🥷 状态拦截：如果正在战术后撤，倒数计时，并绝对禁止往前走！】
+                // =======================================================
+                if (retreatTimer > 0) {
+                        retreatTimer--;
+                        return; // 强制结束本回合大脑运算，阻止后续的寻路和攻击
+                }
+                // =======================================================
+
+                if (--rerouteTimer <= 0) {
+                        if (isReroute) {
+
 		if (--rerouteTimer <= 0) {
 			if (isReroute) {
 				// リルート
@@ -203,16 +210,42 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// 攻撃
-		theMaid.attackEntityAsMob(entityTarget);
-		//theMaid.moveback();
-		if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
-			// 対象を再設定させる
-			theMaid.setAttackTarget(null);
-			theMaid.setRevengeTarget(null);
-			theMaid.getNavigator().clearPath();
-		}
-		return;
-	}
+		                // 原版攻击
+                theMaid.attackEntityAsMob(entityTarget);
+                
+                // =======================================================
+                // 【🥷 核心连招：普攻衔接战术后撤步】
+                // =======================================================
+                // 普攻打完后，如果在地上，有 25% 的概率向后上方翻滚拉开距离
+                if (theMaid.onGround && theMaid.getRNG().nextFloat() < 0.25F) {
+                        // 激活撤退状态，冻结大脑寻路 15 刻 (0.75秒)
+                        this.retreatTimer = 15; 
+                        
+                        // 计算怪物到女仆的反向逃离向量
+                        double dX = theMaid.posX - entityTarget.posX;
+                        double dZ = theMaid.posZ - entityTarget.posZ;
+                        double distance = Math.sqrt(dX * dX + dZ * dZ);
+                        
+                        if (distance >= 0.0001D) {
+                                // 注入反向物理推力！
+                                theMaid.motionX = (dX / distance) * 0.6D;
+                                theMaid.motionZ = (dZ / distance) * 0.6D;
+                                theMaid.motionY = 0.35D; // 小后跳腾空
+                                theMaid.velocityChanged = true;
+                        }
+                }
+                // =======================================================
+
+                                //theMaid.moveback();
+                if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
+                        // 【必不可少的原版逻辑：打完后重置目标和寻路】
+                        theMaid.setAttackTarget(null);
+                        theMaid.setRevengeTarget(null);
+                        theMaid.getNavigator().clearPath();
+                }
+                return;
+        } // 这个是 public void updateTask() 方法结束的大括号
+
 
 	@Override
 	public void setEnable(boolean pFlag) {
