@@ -1653,32 +1653,91 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		return true;
 	}
 
-	@Override
+		@Override
 	public boolean attackEntityAsMob(Entity par1Entity) {
-		//反撃設定
-		if(par1Entity instanceof EntityMob && !(par1Entity instanceof EntityCreeper)){
-			((EntityMob) par1Entity).setAttackTarget(this);
-			((EntityMob) par1Entity).setRevengeTarget(this);
-			((EntityMob) par1Entity).getNavigator().setPath(getNavigator().getPath(), ((EntityMob)par1Entity).moveForward);
-		}
+        // 1. 获取基础伤害与击退
+        float f = (float)this.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+        int i = 0;
+        
+        // --- 【双轨制跳劈暴击系统】 ---
+        boolean isCrit = false;
+        boolean isBlind = this.isPotionActive(net.minecraft.init.MobEffects.BLINDNESS);
 
-		// 正常時は回復優先処理
-		if (getHealth() < 10 && !isBloodsuck() && ItemHelper.hasSugar(this)) {
-			return true;
-		}
+        if (!isBlind) { 
+            // 判定 A：原版自然暴击
+            if (!this.onGround && this.fallDistance > 0.0F && !this.isInWater() && !this.isOnLadder() && !this.isRiding()) {
+                isCrit = true; 
+            } 
+            // 判定 B：10% 概率主动跳劈
+            else if (this.onGround && this.rand.nextFloat() < 0.1F) {
+                isCrit = true;
+                this.motionY = 0.4D; 
+                this.isAirBorne = true;
+                this.velocityChanged = true; 
+            }
+        }
 
-		// 特殊な攻撃処理
-		if (this.jobController.isActiveModeClass() 
-				&& this.jobController.getActiveModeClass().attackEntityAsMob(this.jobController.getMaidModeString(), par1Entity)) {
-			return true;
-		}
+        if (isCrit) {
+            f *= 1.5F; 
+        }
+        // ------------------------------------------
 
-		// 標準処理
-		setSwing(20, isBloodsuck() ? EnumSound.ATTACK_BLOODSUCK : EnumSound.ATTACK, !isPlaying());
-		if (this.maidAvatar != null) {
-			maidAvatar.attackTargetEntityWithCurrentItem(par1Entity);
-		}
-		return true;
+        if (par1Entity instanceof net.minecraft.entity.EntityLivingBase) {
+            f += net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(this.getHeldItemMainhand(), ((net.minecraft.entity.EntityLivingBase)par1Entity).getCreatureAttribute());
+            i += net.minecraft.enchantment.EnchantmentHelper.getKnockbackModifier(this);
+        }
+
+        // 2. 造成伤害
+        boolean flag = par1Entity.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(this), f);
+
+        if (flag) {
+            // --- 【感官反馈】 ---
+            if (isCrit) {
+                this.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+                if (this.world instanceof net.minecraft.world.WorldServer) {
+                    ((net.minecraft.world.WorldServer)this.world).spawnParticle(
+                        net.minecraft.util.EnumParticleTypes.CRIT, 
+                        par1Entity.posX, 
+                        par1Entity.posY + (double)(par1Entity.height / 2.0F), 
+                        par1Entity.posZ, 
+                        15,         
+                        0.2D, 0.2D, 0.2D, 0.2D 
+                    );
+                }
+            }
+
+            if (i > 0) {
+                ((net.minecraft.entity.EntityLivingBase)par1Entity).knockBack(this, (float)i * 0.5F, (double)net.minecraft.util.math.MathHelper.sin(this.rotationYaw * 0.017453292F), (double)(-net.minecraft.util.math.MathHelper.cos(this.rotationYaw * 0.017453292F)));
+                this.motionX *= 0.6D;
+                this.motionZ *= 0.6D;
+            }
+            
+            int j = net.minecraft.enchantment.EnchantmentHelper.getFireAspectModifier(this);
+            if (j > 0) {
+                par1Entity.setFire(j * 4);
+            }
+
+            if (par1Entity instanceof net.minecraft.entity.EntityPlayer) {
+                net.minecraft.entity.player.EntityPlayer entityplayer = (net.minecraft.entity.player.EntityPlayer)par1Entity;
+                net.minecraft.item.ItemStack itemstack = this.getHeldItemMainhand();
+                net.minecraft.item.ItemStack itemstack1 = entityplayer.isHandActive() ? entityplayer.getActiveItemStack() : net.minecraft.item.ItemStack.EMPTY;
+                if (!itemstack.isEmpty() && !itemstack1.isEmpty() && itemstack.getItem().canDisableShield(itemstack, itemstack1, entityplayer, this) && itemstack1.getItem() == net.minecraft.init.Items.SHIELD) {
+                    float f1 = 0.25F + (float)net.minecraft.enchantment.EnchantmentHelper.getEfficiencyModifier(this) * 0.05F;
+                    if (this.rand.nextFloat() < f1) {
+                        entityplayer.getCooldownTracker().setCooldown(net.minecraft.init.Items.SHIELD, 100);
+                        this.world.setEntityState(entityplayer, (byte)30);
+                    }
+                }
+            }
+            this.applyEnchantments(this, par1Entity);
+        } 
+
+        
+        if (this.jobController != null && this.jobController.getActiveModeClass() != null) {
+            this.jobController.getActiveModeClass().attackEntityAsMob(this.jobController.getMaidModeString(), par1Entity);
+        }
+
+        return flag;
 	}
 
 	@Override
