@@ -1689,6 +1689,10 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 
         // 2. 造成伤害
         boolean flag = par1Entity.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(this), f);
+		
+		if (flag) {
+            // --- 【强制播放挥动武器动画】 ---
+            this.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
 
         if (flag) {
             // --- 【感官反馈】 ---
