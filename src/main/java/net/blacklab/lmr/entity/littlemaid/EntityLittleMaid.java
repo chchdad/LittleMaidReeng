@@ -1693,6 +1693,7 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		if (flag) {
             // --- 【强制播放挥动武器动画】 ---
             this.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+			   }
 
         if (flag) {
             // --- 【感官反馈】 ---
