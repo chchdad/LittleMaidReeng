@@ -4892,41 +4892,7 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 	public boolean canChangeModel() {
 		return true;
 	}
-    // ==========================================================
-    // 【爆炸预警与战术撤退】
-    // ==========================================================
-    @Override
-    protected void initEntityAI() {
-        super.initEntityAI();
-        
-        // 预警雷达 1：检测 8 格内正在膨胀或已点燃的苦力怕，以 1.5 倍移速狂奔逃离！
-        this.tasks.addTask(1, new net.minecraft.entity.ai.EntityAIAvoidEntity<>(
-            this, 
-            net.minecraft.entity.monster.EntityCreeper.class, 
-            new com.google.common.base.Predicate<net.minecraft.entity.monster.EntityCreeper>() {
-                @Override
-                public boolean apply(net.minecraft.entity.monster.EntityCreeper creeper) {
-                    // getCreeperState() == 1 表示正在发白光膨胀
-                    return creeper != null && (creeper.getCreeperState() == 1 || creeper.hasIgnited());
-                }
-            }, 
-            8.0F, 1.2D, 1.5D
-        ));
-        
-        // 预警雷达 2：检测 8 格内正在倒计时的 TNT，以 1.5 倍移速狂奔逃离！
-        this.tasks.addTask(1, new net.minecraft.entity.ai.EntityAIAvoidEntity<>(
-            this, 
-            net.minecraft.entity.item.EntityTNTPrimed.class, 
-            new com.google.common.base.Predicate<net.minecraft.entity.item.EntityTNTPrimed>() {
-                @Override
-                public boolean apply(net.minecraft.entity.item.EntityTNTPrimed tnt) {
-                    return true; // 只要是激活的 TNT 就跑
-                }
-            }, 
-            8.0F, 1.2D, 1.5D
-        ));
-    }
-
+   
 	// Tile関係
 
 //	/**
