@@ -143,18 +143,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	        public void updateTask() {
                 theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
-                // =======================================================
-                // 【🥷 状态拦截：如果正在战术后撤，倒数计时，并绝对禁止往前走！】
-                // =======================================================
+
                 if (retreatTimer > 0) {
                         retreatTimer--;
                         return; // 强制结束本回合大脑运算，阻止后续的寻路和攻击
                 }
                 // =======================================================
-
-                if (--rerouteTimer <= 0) {
-                        if (isReroute) {
-
 		if (--rerouteTimer <= 0) {
 			if (isReroute) {
 				// リルート
@@ -212,11 +206,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		// 攻撃
 		                // 原版攻击
                 theMaid.attackEntityAsMob(entityTarget);
-                
-                // =======================================================
-                // 【🥷 核心连招：普攻衔接战术后撤步】
-                // =======================================================
-                // 普攻打完后，如果在地上，有 25% 的概率向后上方翻滚拉开距离
                 if (theMaid.onGround && theMaid.getRNG().nextFloat() < 0.25F) {
                         // 激活撤退状态，冻结大脑寻路 15 刻 (0.75秒)
                         this.retreatTimer = 15; 
