@@ -2423,16 +2423,60 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 //		}
 //	}
 
-	public void updateAITasks()
-	{
-		super.updateAITasks();
-		try {
-			tasks.onUpdateTasks();
-		} catch (ConcurrentModificationException exception) {
-			// TODO Unsuitable silence
-		}
-		this.jobController.getActiveModeClass().updateAITick(getMaidModeString());
-	}
+	        @Override
+        public void updateAITasks() {
+                boolean isRunningForLife = false;
+                net.minecraft.util.math.Vec3d dangerPos = null;
+
+                // 1. 扫描 8 格内的致命苦力怕 (发白光膨胀或已点燃)
+                java.util.List<net.minecraft.entity.monster.EntityCreeper> creepers = this.getEntityWorld().getEntitiesWithinAABB(net.minecraft.entity.monster.EntityCreeper.class, this.getEntityBoundingBox().grow(8.0D, 3.0D, 8.0D));
+                for (net.minecraft.entity.monster.EntityCreeper creeper : creepers) {
+                        if (creeper.getCreeperState() == 1 || creeper.hasIgnited()) {
+                                dangerPos = new net.minecraft.util.math.Vec3d(creeper.posX, creeper.posY, creeper.posZ);
+                                break;
+                        }
+                }
+
+                // 2. 扫描 8 格内激活的 TNT
+                if (dangerPos == null) {
+                        java.util.List<net.minecraft.entity.item.EntityTNTPrimed> tnts = this.getEntityWorld().getEntitiesWithinAABB(net.minecraft.entity.item.EntityTNTPrimed.class, this.getEntityBoundingBox().grow(8.0D, 3.0D, 8.0D));
+                        for (net.minecraft.entity.item.EntityTNTPrimed tnt : tnts) {
+                                dangerPos = new net.minecraft.util.math.Vec3d(tnt.posX, tnt.posY, tnt.posZ);
+                                break;
+                        }
+                }
+
+                // 3. 执行强制反向逃亡指令！
+                if (dangerPos != null) {
+                        // 使用原版的避险算法，自动计算反向安全点 (最远逃离 16 格，垂直最多翻越 7 格)
+                        net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(this, 16, 7, dangerPos);
+                        if (safePos != null) {
+                                this.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, 1.5D); // 以 1.5 倍速狂奔
+                                this.setAttackTarget(null); // 清除一切攻击目标，保命要紧
+                                isRunningForLife = true;
+                        }
+                }
+                // ==========================================================
+
+                super.updateAITasks();
+                
+                // 【核心逻辑】：如果正在逃亡，直接 return 结束运算！
+                // 彻底阻断底层的 try-catch 和 jobController，不给它们打断逃跑的机会！
+                if (isRunningForLife) {
+                        return;
+                }
+
+                try {
+                        tasks.onUpdateTasks();
+                } catch (java.util.ConcurrentModificationException exception) {
+                        // TODO Unsuitable silence
+                }
+                
+                if (this.jobController != null && this.jobController.getActiveModeClass() != null) {
+                        this.jobController.getActiveModeClass().updateAITick(getMaidModeString());
+                }
+        }
+
 
 	@Override
 	public void onEntityUpdate() {
