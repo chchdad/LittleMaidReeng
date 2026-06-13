@@ -1717,7 +1717,7 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
                 par1Entity.setFire(j * 4);
             }
 
-            if (par1Entity instanceof net.minecraft.entity.EntityPlayer) {
+            if (par1Entity instanceof net.minecraft.entity.player.EntityPlayer) {
                 net.minecraft.entity.player.EntityPlayer entityplayer = (net.minecraft.entity.player.EntityPlayer)par1Entity;
                 net.minecraft.item.ItemStack itemstack = this.getHeldItemMainhand();
                 net.minecraft.item.ItemStack itemstack1 = entityplayer.isHandActive() ? entityplayer.getActiveItemStack() : net.minecraft.item.ItemStack.EMPTY;
