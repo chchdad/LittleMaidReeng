@@ -264,20 +264,39 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// 攻撃
-		                // 原版攻击
+		                       // 原版攻击
                 theMaid.attackEntityAsMob(entityTarget);
                 
-                // =======================================================
-                // 【🥷 连招起手式：触发状态机】
-                // =======================================================
+                if (this.isDashBuff) {
+                        this.isDashBuff = false; // 消耗掉 Buff
+                        
+                        // 1. 物理引擎干涉：强制大击退 (把怪物往后轰飞)
+                        double knockX = entityTarget.posX - theMaid.posX;
+                        double knockZ = entityTarget.posZ - theMaid.posZ;
+                        double d = Math.sqrt(knockX * knockX + knockZ * knockZ);
+                        if (d > 0) {
+                                // 赋予怪物 0.8D 的水平推力和 0.3D 的击飞高度
+                                entityTarget.addVelocity((knockX / d) * 0.8D, 0.3D, (knockZ / d) * 0.8D);
+                        }
+                        
+                        // 2. 听觉与视觉反馈：强制播放暴击音效与满天星星粒子
+                        theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+                        if (worldObj instanceof net.minecraft.world.WorldServer) {
+                                ((net.minecraft.world.WorldServer)worldObj).spawnParticle(
+                                        net.minecraft.util.EnumParticleTypes.CRIT, 
+                                        entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
+                                        15, 0.3D, 0.3D, 0.3D, 0.2D
+                                );
+                        }
+                }
+
+
                 // 普攻打完后，如果在地上，有 25% 的概率启动完整连招
                 if (theMaid.onGround && theMaid.getRNG().nextFloat() < 0.25F) {
-                        // 不再立刻后滑，而是先原地僵直 4 刻 (0.2秒) 营造打击感
-                        this.actionDelayTimer = 4; 
-                        // 告诉大脑：停顿结束后，立刻进入后撤阶段
+                        this.actionDelayTimer = 8; 
                         this.pendingBackstep = true; 
                 }
-                // =======================================================
+
 
                 //theMaid.moveback();
                 if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
