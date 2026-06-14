@@ -141,17 +141,36 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getNavigator().clearPath();
 		theMaid.setAttackTarget(null);
 		theMaid.setRevengeTarget(null);
-//		theMaid.maidAvatar.stopActiveHand();
+		
+		// =======================================================
+		// 【清空连招记忆，防止鞭尸和跨目标瞎冲！】
+		// =======================================================
+		retreatTimer = 0;
+		actionDelayTimer = 0;
+		pendingBackstep = false;
+		pendingDash = false;
+		isDashBuff = false;
 	}
-        @Override
+
+                @Override
         public void updateTask() {
+                // =======================================================
+                // 【目标一旦死亡立刻终止所有动作】
+                // =======================================================
+                if (entityTarget == null || entityTarget.isDead || !entityTarget.isEntityAlive()) {
+                        resetTask();
+                        return;
+                }
+
                 theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+                
                 // =======================================================
                 // 如果她正处于突刺状态，且双脚已经落地（或者掉进水里）
                 if (this.isDashBuff && (theMaid.onGround || theMaid.isInWater())) {
-                        this.isDashBuff = false; // 没打中？没收必杀标记！
+                        this.isDashBuff = false; // 没打中？没收必杀标记
                         theMaid.hurtResistantTime = 0; // 落地瞬间强制清空霸体无敌！
                 }
+
 
 
                 // =======================================================
@@ -304,15 +323,20 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 
 
-                // 普攻打完后，如果在地上，有 25% 的概率启动完整连招
+                                // 普攻打完后，如果在地上，有 25% 的概率启动完整连招
                 if (theMaid.onGround && theMaid.getRNG().nextFloat() < 0.25F) {
                         this.actionDelayTimer = 8; 
                         this.pendingBackstep = true; 
+                        
+                        // 【起手即霸体】
+                        // 从决定后撤的这一瞬间起，直接给予 40 刻 (2秒) 的全过程无敌，
+                        // 确保她在后滑、停顿、突进的全过程中，绝对不会被怪物的任何攻击打断！
+                        theMaid.hurtResistantTime = 40; 
                 }
-
 
                 //theMaid.moveback();
                 if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
+
                         // 対象を再設定させる
                         theMaid.setAttackTarget(null);
                         theMaid.setRevengeTarget(null);
