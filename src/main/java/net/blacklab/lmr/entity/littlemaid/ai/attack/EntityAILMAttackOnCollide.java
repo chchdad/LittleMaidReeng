@@ -108,8 +108,19 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.maidAvatar.stopActiveHand();
 	}
 
-	@Override
+		@Override
 	public boolean shouldContinueExecuting() {
+		// =======================================================
+		// 【ACT动作锁 (Action Lock)】
+		// 如果正在执行后撤、停顿或突进，绝对不允许原版引擎中断AI！
+		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || retreatTimer > 0) {
+			// 除非目标真的死了，否则强制锁死状态机，把这套连招打完！
+			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) {
+				return true; 
+			}
+		}
+		// =======================================================
+
 		Entity lentity = theMaid.getAttackTarget();
 		if (lentity == null || entityTarget != lentity) {
 			return false;
