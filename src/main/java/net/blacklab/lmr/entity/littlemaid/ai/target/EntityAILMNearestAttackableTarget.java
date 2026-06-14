@@ -52,21 +52,46 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 //			return true;
 		}
 
-		 double lfollowRange = 0.0D;
+		 		// =======================================================
+		// 5. 极速斩击判定 (瞬间转身 + 110度防背刺视觉保护)
+		// =======================================================
+		double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
+		attackRangeSq *= attackRangeSq;
+		double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
+		
+		if (currentDistSq <= attackRangeSq) {
+			// 【核心修正】：贴脸瞬间，强行把身体和头扭向怪物，根除转身慢导致的发呆！
+			double tdx = entityTarget.posX - theMaid.posX;
+			double tdz = entityTarget.posZ - theMaid.posZ;
+			float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
+			
+			// 强行正骨，瞬间锁定目标
+			theMaid.rotationYaw = targetYaw;
+			theMaid.rotationYawHead = targetYaw;
+			theMaid.renderYawOffset = targetYaw;
 
-		        // ========================================================
-                // 修改 3：雷达扫描中心偏移
-                // ========================================================
-                net.minecraft.util.math.AxisAlignedBB searchBox;
-                if (theMaid.getMaidMasterEntity() != null && !theMaid.isBloodsuck()) {
-                        searchBox = theMaid.getMaidMasterEntity().getEntityBoundingBox().grow(lfollowRange, 8.0D, lfollowRange);
-                        theNearestAttackableTargetSorter.setEntity(theMaid.getMaidMasterEntity());
-                } else {
-                        searchBox = taskOwner.getEntityBoundingBox().grow(lfollowRange, 8.0D, lfollowRange);
-                        theNearestAttackableTargetSorter.setEntity(theMaid);
-                }
+			// 恢复原版 110度 角度计算 (防止模型视觉上出现“背刺”)
+			double vdx = -Math.sin(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
+			double vdz = Math.cos(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
+			double ld = (tdx * vdx + tdz * vdz) / (Math.sqrt(tdx * tdx + tdz * tdz) * Math.sqrt(vdx * vdx + vdz * vdz));
+			
+			// 必须满足在正面 110 度内，且武器 CD 就绪
+			boolean canSlashNow = (ld >= -0.35D) && (theMaid.getSwingStatusDominant().canAttack() || entityTarget.hurtResistantTime <= 5);
 
-                List<T> llist = this.taskOwner.getEntityWorld().getEntitiesWithinAABB(targetClass, searchBox);
+			if (canSlashNow) {
+				System.out.println("[LMR-ATTACK-DEBUG] 转身锁定！贴脸瞬间出刀!");
+				theMaid.attackEntityAsMob(entityTarget);
+				
+				float triggerChance = isBerserk ? 0.50F : 0.25F;
+				if (theMaid.onGround && theMaid.getRNG().nextFloat() < triggerChance) {
+					System.out.println("[LMR-ATTACK-DEBUG] 触发连招体系!");
+					this.actionDelayTimer = 8; 
+					this.pendingBackstep = true; 
+					theMaid.hurtResistantTime = 40; 
+				}
+			}
+		}
+	} // 这是 updateTask() 方法的右大括号，请确保替换到这里
 
 		
 		if (theMaid.getMaidMasterEntity() != null && !theMaid.isBloodsuck()) {
