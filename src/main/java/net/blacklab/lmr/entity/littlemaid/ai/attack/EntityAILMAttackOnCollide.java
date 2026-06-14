@@ -260,8 +260,22 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		boolean lguard = false;
-		if (theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ) > attackRange) {
+				boolean lguard = false;
+		
+		// =======================================================
+		// 【✨ 核心修复：突刺动态碰撞箱 (防穿模绝对命中)】
+		// =======================================================
+		boolean canHit = false;
+		if (this.isDashBuff) {
+			// 突刺状态下无视常规距离判定！
+			// 只要女仆的碰撞箱放大 1 格后，与怪物的碰撞箱产生了重叠，绝对拔刀！
+			canHit = theMaid.getEntityBoundingBox().grow(1.0D, 1.0D, 1.0D).intersects(entityTarget.getEntityBoundingBox());
+		} else {
+			// 正常平A时的经典距离判定
+			canHit = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ) <= attackRange;
+		}
+
+		if (!canHit) {
 			if (isGuard && theMaid.isMaskedMaid()) {
 				EntityLivingBase lel = null;
 				if (entityTarget instanceof EntityCreature) {
