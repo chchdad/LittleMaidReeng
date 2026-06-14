@@ -272,47 +272,12 @@ public class EntityMode_Fencer extends EntityModeBase {
 		return 25 * 25;
 	}
 	
-	/**
+		/**
 	 * 被ダメ時の処理
 	 */
 	@Override
 	public float attackEntityFrom(DamageSource damageSource, float amount) {
-		
-		//Fencer以外はスキップ
-		if (!mmode_Fencer.equals(owner.getMaidModeString())) return 0;
-		
-		//Mobからのダメージ以外はスキップ
-		if (!"mob".equals(damageSource.getDamageType())) return 0;
-		
-		//ブースト状態でないかつ
-		//ダメージが2以上かつ
-		//現HP- ダメージが10以下の場合
-		//mobからのダメージの場合
-		if (!owner.getMaidOverDriveTime().isEnable() 
-				&& 2.0F <= amount
-				&& owner.getHealth() - amount <= 10.0F) {
-			
-			//ブースト発動
-			owner.getMaidOverDriveTime().setValue(100);
-			owner.playSound("mob.zombie.infect");
-			
-			//周辺の敵を吹き飛ばし
-			List<EntityLiving> entityList = owner.world.getEntitiesWithinAABB(EntityLiving.class, (new AxisAlignedBB(owner.getPosition()).grow(3.0D)));
-			for (EntityLiving entity : entityList) {
-				if (entity.getAttackTarget() instanceof EntityLittleMaid
-						|| entity.getRevengeTarget() instanceof EntityLittleMaid) {
-					entity.knockBack(owner, 1.5F, 
-							(double)MathHelper.sin(owner.rotationYaw * 0.017453292F), 
-							(double)(-MathHelper.cos(owner.rotationYaw * 0.017453292F)));
-				}
-			}
-		} else if (!owner.getMaidOverDriveTime().isEnable()
-				&& owner.world.rand.nextInt(100) < 10) {
-			//ブースト発動
-			owner.getMaidOverDriveTime().setValue(60);
-			owner.playSound("mob.zombie.infect");
-		}
-		
+		// 【弃OverDrive 挨打爆气与加速！】
+		// 所有的连招、霸体、爆发，已全部移交状态机统一管理！
 		return 0;
 	}
-}
