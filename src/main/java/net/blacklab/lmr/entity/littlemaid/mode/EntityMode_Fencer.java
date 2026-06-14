@@ -280,4 +280,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 		// 【弃OverDrive 挨打爆气与加速！】
 		// 所有的连招、霸体、爆发，已全部移交状态机统一管理！
 		return 0;
+	    }
 	}
+	
