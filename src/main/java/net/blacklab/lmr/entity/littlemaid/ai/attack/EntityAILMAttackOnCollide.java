@@ -5,20 +5,14 @@ import net.blacklab.lmr.entity.littlemaid.EntityLittleMaid;
 import net.blacklab.lmr.entity.littlemaid.ai.IEntityAILM;
 import net.blacklab.lmr.util.helper.MaidHelper;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityCreature;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.ai.EntityAIBase;
-import net.minecraft.item.EnumAction;
-import net.minecraft.item.ItemStack;
 import net.minecraft.pathfinding.Path;
-import net.minecraft.util.EnumHand;
 import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理
- * @author firis-games
- *
+ * メイドさんの直接攻撃系処理 (高频日志抓虫版)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -38,6 +32,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected boolean isDashBuff = false; 
 	public boolean isGuard;
 
+	// 限制日志刷屏的计数器
+	private int logSpamLimiter = 0;
+
 	public EntityAILMAttackOnCollide(EntityLittleMaid par1EntityLittleMaid, float par2, boolean par3) {
 		theMaid = par1EntityLittleMaid;
 		worldObj = par1EntityLittleMaid.getEntityWorld();
@@ -50,18 +47,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	@Override
 	public boolean shouldExecute() {
 		Entity lentity = theMaid.getAttackTarget();
-		if (!fEnable||theMaid.isMaidWait()) {
+		if (!fEnable || theMaid.isMaidWait() || lentity == null) {
 			return false;
 		}
-		if (lentity == null) {
-			return false;
-		}
-
-		lentity = theMaid.getAttackTarget();
-		if(lentity==null) return false;
 
 		entityTarget = lentity;
-
 		pathToTarget = theMaid.getNavigator().getPathToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ);
 		attackRange = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 		attackRange *= attackRange;
@@ -73,6 +63,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if ((pathToTarget != null) || (theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ) <= attackRange)) {
 			return true;
 		}
+		
 		theMaid.setAttackTarget(null);
 		theMaid.setRevengeTarget(null);
 		return false;
@@ -80,6 +71,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void startExecuting() {
+		System.out.println("[LMR-ATTACK-DEBUG] >>> 开启攻击AI! 锁定目标: " + entityTarget.getName());
 		Entity lentity = theMaid.getAttackTarget();
 		if(!lentity.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
@@ -91,7 +83,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public boolean shouldContinueExecuting() {
-		// 【ACT动作锁】如果是连招期间，强制接管不准打断！
 		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || retreatTimer > 0) {
 			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) {
 				return true; 
@@ -100,16 +91,21 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		Entity lentity = theMaid.getAttackTarget();
 		if (lentity == null || entityTarget != lentity || entityTarget.isDead || !entityTarget.isEntityAlive()) {
+			System.out.println("[LMR-ATTACK-DEBUG] --- 中断攻击AI: 目标丢失/死亡/对象变更");
 			resetTask();
 			return false;
 		}
 		
 		if (!MaidHelper.isTargetReachable(this.theMaid, lentity, 0.0D)) {
+			System.out.println("[LMR-ATTACK-DEBUG] --- 中断攻击AI: 目标不可达 (isTargetReachable = false)");
 			return false;
 		}
 
 		if (!isReroute) {
-			return !theMaid.getNavigator().noPath();
+			if (theMaid.getNavigator().noPath()) {
+				System.out.println("[LMR-ATTACK-DEBUG] --- 中断攻击AI: 寻路中断且不允许重新寻路 (noPath = true)");
+				return false;
+			}
 		}
 
 		return true;
@@ -117,12 +113,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void resetTask() {
+		System.out.println("[LMR-ATTACK-DEBUG] <<< 重置任务状态机清空!");
 		entityTarget = null;
 		theMaid.getNavigator().clearPath();
 		theMaid.setAttackTarget(null);
 		theMaid.setRevengeTarget(null);
-		
-		// 【清空状态机记忆】
 		retreatTimer = 0;
 		actionDelayTimer = 0;
 		pendingBackstep = false;
@@ -132,9 +127,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void updateTask() {
-		// =======================================================
-		// 1. 探针与 50% 狂暴变色
-		// =======================================================
+		logSpamLimiter++;
+
 		if (entityTarget == null || entityTarget.isDead || !entityTarget.isEntityAlive()) {
 			resetTask();
 			return;
@@ -144,12 +138,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		boolean isBerserk = theMaid.getHealth() <= theMaid.getMaxHealth() * 0.50F;
 		theMaid.setBloodsuck(isBerserk); 
 		
-		// =======================================================
-		// 2. 【冠军级漩涡吸附与强制处决系统】
-		// =======================================================
 		if (this.isDashBuff) {
-			// 如果因为怪物瞬移导致没打中掉在地上，没收 Buff
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
+				if (logSpamLimiter % 10 == 0) System.out.println("[LMR-ATTACK-DEBUG] [警告] DashBuff 被强制没收，女仆停留在原地！");
 				this.isDashBuff = false;
 				theMaid.hurtResistantTime = 0;
 			} else {
@@ -157,19 +148,17 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				double dZ = entityTarget.posZ - theMaid.posZ;
 				double distance = Math.sqrt(dX * dX + dZ * dZ);
 
-				// 强制扭头锁头
 				theMaid.rotationYaw = (float)(Math.atan2(dZ, dX) * 180.0D / Math.PI) - 90.0F;
 				theMaid.renderYawOffset = theMaid.rotationYaw;
 
 				if (distance > 1.5D && distance < 10.0D) {
-					// 空中实时修正航向，死亡吸附
 					theMaid.motionX = (dX / distance) * 0.9D;
 					theMaid.motionZ = (dZ / distance) * 0.9D;
 					theMaid.velocityChanged = true;
-					return; // 飞行期间切断后续走路逻辑
+					return; 
 				} 
 				else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D, 0.8D, 0.8D).intersects(entityTarget.getEntityBoundingBox())) {
-					// 强制拔刀！
+					System.out.println("[LMR-ATTACK-DEBUG] 触发吸附处决!");
 					theMaid.attackEntityAsMob(entityTarget);
 					
 					this.isDashBuff = false;
@@ -178,7 +167,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.motionZ = 0.0D;
 					theMaid.velocityChanged = true;
 
-					// 绝对击飞
 					if (entityTarget instanceof EntityLivingBase) {
 						((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
 							(double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
@@ -186,7 +174,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						entityTarget.velocityChanged = true;
 					}
 
-					// 爆星特效
 					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
 					if (worldObj instanceof net.minecraft.world.WorldServer) {
 						((net.minecraft.world.WorldServer)worldObj).spawnParticle(
@@ -195,14 +182,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							15, 0.3D, 0.3D, 0.3D, 0.2D
 						);
 					}
-					return; // 处决完毕，本帧结束
+					return; 
+				} else {
+					if (logSpamLimiter % 10 == 0) System.out.println("[LMR-ATTACK-DEBUG] [异常] DashBuff 激活中，但距离超过 10 格！强制重置 Buff！距离: " + distance);
+					this.isDashBuff = false;
 				}
 			}
 		}
 
-		// =======================================================
-		// 3. 【多段式刺客状态机】
-		// =======================================================
 		if (retreatTimer > 0) {
 			retreatTimer--;
 			return; 
@@ -223,6 +210,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					}
 					pendingDash = true;
 					actionDelayTimer = isBerserk ? 8 : 15; 
+					System.out.println("[LMR-ATTACK-DEBUG] 执行后撤步, 进入蓄力等待...");
 				} 
 				else if (pendingDash) {
 					pendingDash = false;
@@ -237,14 +225,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					}
 					theMaid.hurtResistantTime = 20; 
 					this.isDashBuff = true; 
+					System.out.println("[LMR-ATTACK-DEBUG] 蓄力结束，发射 DashBuff 处决冲击波！");
 				}
 			}
 			return; 
 		}
 
-		// =======================================================
-		// 4. 原生寻路模块 (让她能正常走向怪物)
-		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
 				rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
@@ -255,36 +241,45 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		// =======================================================
-		// 5. 原版距离判定与平A起手式
-		// =======================================================
 		double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 		attackRangeSq *= attackRangeSq;
+		double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
 		
-		if (theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ) <= attackRangeSq) {
-			// 原版的 110度 攻击死角判定
+		if (currentDistSq <= attackRangeSq) {
 			double tdx = entityTarget.posX - theMaid.posX;
 			double tdz = entityTarget.posZ - theMaid.posZ;
 			double vdx = -Math.sin(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
 			double vdz = Math.cos(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
 			double ld = (tdx * vdx + tdz * vdz) / (Math.sqrt(tdx * tdx + tdz * tdz) * Math.sqrt(vdx * vdx + vdz * vdz));
 			
+			if (logSpamLimiter % 10 == 0) {
+				System.out.println(String.format("[LMR-ATTACK-DEBUG] 贴脸判定: 距:%.2f 范:%.2f | 角度:%.2f (>= -0.35即可) | canAttack: %s", currentDistSq, attackRangeSq, ld, theMaid.getSwingStatusDominant().canAttack()));
+			}
+
 			if (ld >= -0.35D && theMaid.getSwingStatusDominant().canAttack()) {
-				// 发动普通攻击
+				System.out.println("[LMR-ATTACK-DEBUG] 平A成功发动!");
 				theMaid.attackEntityAsMob(entityTarget);
 				
-				// 命中后触发连招起手！
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
 				if (theMaid.onGround && theMaid.getRNG().nextFloat() < triggerChance) {
+					System.out.println("[LMR-ATTACK-DEBUG] 触发连招体系!");
 					this.actionDelayTimer = 8; 
 					this.pendingBackstep = true; 
 					theMaid.hurtResistantTime = 40; 
+				}
+			} else {
+				if (logSpamLimiter % 10 == 0 && !theMaid.getSwingStatusDominant().canAttack()) {
+					System.out.println("[LMR-ATTACK-DEBUG] [拦截] 虽然贴脸，但 canAttack() CD未转好");
+				}
+				if (logSpamLimiter % 10 == 0 && ld < -0.35D) {
+					System.out.println("[LMR-ATTACK-DEBUG] [拦截] 虽然贴脸，但怪物在视线死角！(ld: " + ld + ")");
 				}
 			}
 		}
 
 		if (theMaid.jobController != null && theMaid.jobController.getActiveModeClass() != null) {
 			if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
+				System.out.println("[LMR-ATTACK-DEBUG] 被 jobController.isChangeTartget 强制重置目标！");
 				theMaid.setAttackTarget(null);
 				theMaid.setRevengeTarget(null);
 				theMaid.getNavigator().clearPath();
