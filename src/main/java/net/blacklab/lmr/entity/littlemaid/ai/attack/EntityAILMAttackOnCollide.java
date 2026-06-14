@@ -277,7 +277,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		if (theMaid.jobController != null && theMaid.jobController.getActiveModeClass() != null) {
+			// ====== 封印“自我怀疑”打断机制，防止死锁 ======
+		/* if (theMaid.jobController != null && theMaid.jobController.getActiveModeClass() != null) {
 			if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
 				System.out.println("[LMR-ATTACK-DEBUG] 被 jobController.isChangeTartget 强制重置目标！");
 				theMaid.setAttackTarget(null);
@@ -285,6 +286,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.getNavigator().clearPath();
 			}
 		}
+		*/
+
 	}
 
 	@Override
