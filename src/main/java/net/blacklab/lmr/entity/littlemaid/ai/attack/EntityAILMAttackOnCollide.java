@@ -173,21 +173,32 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                         return;
                 }
 
-                theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+                                theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
                 
                 // =======================================================
-                // 如果她正处于突刺状态，且双脚已经落地（或者掉进水里）
-                if (this.isDashBuff && (theMaid.onGround || theMaid.isInWater())) {
-                        this.isDashBuff = false; // 没打中？没收必杀标记
-                        theMaid.hurtResistantTime = 0; // 落地瞬间强制清空霸体无敌！
+                // 【🩸 50% 半血狂暴系统】
+                // =======================================================
+                boolean isBerserk = theMaid.getHealth() <= theMaid.getMaxHealth() * 0.50F;
+                theMaid.setBloodsuck(isBerserk); // 半血以下直接红温！
+                // =======================================================
+                
+                // =======================================================
+                // 【✨ 修复：精准落地取消机制 (防误判偷Buff)】
+                // =======================================================
+                // 如果带着突刺Buff，双脚在地上，并且【水平动量已经近乎停止】（说明飞完且没打中）
+                if (this.isDashBuff && theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
+                        this.isDashBuff = false; // 没打中且停下了，没收必杀标记
+                        theMaid.hurtResistantTime = 0; // 清空霸体
                 }
+                // =======================================================
+
 
 
 
                 // =======================================================
-                //多段式刺客状态机 (FSM)
+                // 【多段式刺客状态机】
                 // =======================================================
-                // 1. 飞行/滑步期间，大脑挂机，让物理引擎飞一会儿
+                // 1. 飞行/滑步期间，大脑挂机
                 if (retreatTimer > 0) {
                         retreatTimer--;
                         return; 
@@ -199,7 +210,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                         
                         // 当停顿结束时，触发积压的后续动作！
                         if (actionDelayTimer <= 0) {
-                                
                                 // 阶段 A：执行战术后撤
                                 if (pendingBackstep) {
                                         pendingBackstep = false;
@@ -213,9 +223,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                                                 theMaid.velocityChanged = true;
                                         }
                                         
-                                        // 滑步完成后，进入下一阶段：在远处观察并准备突进！
                                         pendingDash = true;
-                                        actionDelayTimer = 15; // 在远处停顿 15 刻 (0.75秒)
+                                        // 如果处于红温狂暴，停顿蓄力时间缩短！
+                                        actionDelayTimer = isBerserk ? 8 : 15; 
                                 } 
                                 // 阶段 B：执行致命突进
                                 else if (pendingDash) {
@@ -224,25 +234,20 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                                         double dZ = entityTarget.posZ - theMaid.posZ;
                                         double distance = Math.sqrt(dX * dX + dZ * dZ);
                                         if (distance >= 0.0001D) {
-                                                // 稍微把推力降到 0.9D，配合急刹车手感更好
                                                 theMaid.motionX = (dX / distance) * 0.9D; 
                                                 theMaid.motionZ = (dZ / distance) * 0.9D;
                                                 theMaid.motionY = 0.2D; 
                                                 theMaid.velocityChanged = true;
                                         }
-                                        
-                                        
                                         theMaid.hurtResistantTime = 20; 
-                                        
                                         this.isDashBuff = true; 
-                                        
-                                        // 不锁大脑，让她飞过去的瞬间，下方的原版距离判定能立刻抓住她触发攻击！
                                 }
-
                         }
-                        // 在停顿倒计时期间，绝对禁止往前走或攻击（产生硬直感）
+                        // 停顿期间禁止寻路和攻击
                         return; 
                 }
+                // =======================================================
+
 			
 		if (--rerouteTimer <= 0) {
 			if (isReroute) {
@@ -317,6 +322,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                 theMaid.attackEntityAsMob(entityTarget);
                 
                 // =======================================================
+                // 【💥 核心增强：突刺命中急刹车与暴击结算】
+                // =======================================================
                 if (this.isDashBuff) {
                         this.isDashBuff = false; // 消耗掉 Buff
                         
@@ -326,7 +333,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                         theMaid.motionZ = 0.0D;
                         theMaid.velocityChanged = true;
                         
-                        // 强制大击退 (把怪物往后轰飞)
+                        // 强制大击退
                         double knockX = entityTarget.posX - theMaid.posX;
                         double knockZ = entityTarget.posZ - theMaid.posZ;
                         double d = Math.sqrt(knockX * knockX + knockZ * knockZ);
@@ -346,18 +353,17 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                 }
                 // =======================================================
 
-
-
-                                // 普攻打完后，如果在地上，有 25% 的概率启动完整连招
-                if (theMaid.onGround && theMaid.getRNG().nextFloat() < 0.25F) {
+                // =======================================================
+                // 【连招起手式】
+                // =======================================================
+                // isBerserk 变量在方法顶部定义过了，直接使用即可！
+                float triggerChance = isBerserk ? 0.50F : 0.25F;
+                if (theMaid.onGround && theMaid.getRNG().nextFloat() < triggerChance) {
                         this.actionDelayTimer = 8; 
                         this.pendingBackstep = true; 
-                        
-                        // 【起手即霸体】
-                        // 从决定后撤的这一瞬间起，直接给予 40 刻 (2秒) 的全过程无敌，
-                        // 确保她在后滑、停顿、突进的全过程中，绝对不会被怪物的任何攻击打断！
-                        theMaid.hurtResistantTime = 40; 
+                        theMaid.hurtResistantTime = 40; // 起手即霸体
                 }
+
 
                 //theMaid.moveback();
                 if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
