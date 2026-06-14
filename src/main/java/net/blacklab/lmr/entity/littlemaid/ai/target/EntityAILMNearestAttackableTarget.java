@@ -52,7 +52,8 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 //			return true;
 		}
 
-		double lfollowRange;
+		 double lfollowRange = 0.0D;
+
 		        // ========================================================
                 // 修改 3：雷达扫描中心偏移
                 // ========================================================
