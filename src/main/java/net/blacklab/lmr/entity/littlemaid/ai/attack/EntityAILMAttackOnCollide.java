@@ -177,21 +177,73 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                                 theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
                 
                 // =======================================================
-                // 【 50% 半血狂暴系统】
+                //  视觉接管：50% 半血狂暴系统
                 // =======================================================
                 boolean isBerserk = theMaid.getHealth() <= theMaid.getMaxHealth() * 0.50F;
-                theMaid.setBloodsuck(isBerserk); // 半血以下直接红温！
+                theMaid.setBloodsuck(isBerserk); 
                 // =======================================================
                 
                 // =======================================================
-                // 【修复：精准落地取消机制 (防误判偷Buff)】
+                // 【 吸附与强制处决系统】
                 // =======================================================
-                // 如果带着突刺Buff，双脚在地上，并且【水平动量已经近乎停止】（说明飞完且没打中）
-                if (this.isDashBuff && theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
-                        this.isDashBuff = false; // 没打中且停下了，没收必杀标记
-                        theMaid.hurtResistantTime = 0; // 清空霸体
+                if (this.isDashBuff) {
+                        double dX = entityTarget.posX - theMaid.posX;
+                        double dZ = entityTarget.posZ - theMaid.posZ;
+                        double distance = Math.sqrt(dX * dX + dZ * dZ);
+
+                        // 1. 强制锁头：瞬间扭头死死盯住怪物，无视原版平滑转向的延迟！
+                        theMaid.rotationYaw = (float)(Math.atan2(dZ, dX) * 180.0D / Math.PI) - 90.0F;
+                        theMaid.renderYawOffset = theMaid.rotationYaw;
+
+                        if (distance > 1.5D && distance < 10.0D) {
+                                // 2. 在空中每一帧都重新修正航向，强行把她吸向怪物！
+                                theMaid.motionX = (dX / distance) * 0.9D;
+                                theMaid.motionZ = (dZ / distance) * 0.9D;
+                                theMaid.velocityChanged = true;
+                        } 
+                        // 3. 强制处决：只要被吸到 1.5 格内，或者碰撞箱擦到边，不用等底层判断了，立刻强行拔刀！
+                        else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D, 0.8D, 0.8D).intersects(entityTarget.getEntityBoundingBox())) {
+                                
+                                // 强行触发攻击扣血
+                                theMaid.attackEntityAsMob(entityTarget);
+                                
+                                // 处决完毕，没收 Buff 并瞬间急刹车
+                                this.isDashBuff = false;
+                                theMaid.motionX = 0.0D;
+                                theMaid.motionY = 0.0D;
+                                theMaid.motionZ = 0.0D;
+                                theMaid.velocityChanged = true;
+
+                                // 霸道击飞 (无视抗性踹出3格远)
+                                if (entityTarget instanceof net.minecraft.entity.EntityLivingBase) {
+                                        ((net.minecraft.entity.EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
+                                                (double)net.minecraft.util.math.MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
+                                                (double)(-net.minecraft.util.math.MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+                                        entityTarget.velocityChanged = true;
+                                }
+
+                                // 处决视听特效
+                                theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+                                if (worldObj instanceof net.minecraft.world.WorldServer) {
+                                        ((net.minecraft.world.WorldServer)worldObj).spawnParticle(
+                                                net.minecraft.util.EnumParticleTypes.CRIT, 
+                                                entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
+                                                15, 0.3D, 0.3D, 0.3D, 0.2D
+                                        );
+                                }
+                                
+                                //  致命一击完成，直接终止大脑思考，跳过下方所有原版逻辑！
+                                return;
+                        }
                 }
                 // =======================================================
+
+                // =======================================================
+                // 【 修复：精准落地取消机制 (防误判偷Buff)】
+                // =======================================================
+                // 保留原样：如果怪瞬移了导致她打空落地，依旧可以清空无敌和Buff
+                if (this.isDashBuff && theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
+
 
 
 
@@ -269,7 +321,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				boolean lguard = false;
 		
 		// =======================================================
-		// 【✨ 核心修复：突刺动态碰撞箱 (防穿模绝对命中)】
+		// 【 突刺动态碰撞箱 (防穿模绝对命中)】
 		// =======================================================
 		boolean canHit = false;
 		if (this.isDashBuff) {
@@ -318,57 +370,19 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return;
 		}
 
-		// 攻撃
-                // 原版攻击
+                // 原版攻击（只有普通走路靠近时，才会走到这一步）
                 theMaid.attackEntityAsMob(entityTarget);
-                
-                // =======================================================
-			//击飞
-                if (this.isDashBuff) {
-                        this.isDashBuff = false; // 消耗掉 Buff
-                        
-                        // 【急刹车防穿模】
-                        theMaid.motionX = 0.0D;
-                        theMaid.motionY = 0.0D;
-                        theMaid.motionZ = 0.0D;
-                        theMaid.velocityChanged = true;
-                        
-                        // 【🚀 修复：无视抗性的绝对击飞！】
-                        if (entityTarget instanceof EntityLivingBase) {
-                                // 使用原版 knockBack 函数，参数：攻击者, 强度, X轴偏角, Z轴偏角
-                                // 强度设为 1.5F (极强)，这能一脚把怪物踹出 3-4 格远！
-                                ((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
-                                        (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
-                                        (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
-                                
-                                // 强制同步给客户端，确保你画面里能看到怪物飞出去！
-                                entityTarget.velocityChanged = true; 
-                        }
-                        
-                        // 听觉与视觉反馈
-                        theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
-                        if (worldObj instanceof net.minecraft.world.WorldServer) {
-                                ((net.minecraft.world.WorldServer)worldObj).spawnParticle(
-                                        net.minecraft.util.EnumParticleTypes.CRIT, 
-                                        entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
-                                        15, 0.3D, 0.3D, 0.3D, 0.2D
-                                );
-                        }
-                }
-                // =======================================================
-
 
                 // =======================================================
                 // 【连招起手式】
                 // =======================================================
-                // isBerserk 变量在方法顶部定义过了，直接使用即可！
+                // 注意：isBerserk 变量在顶部定义过了，这里直接用！
                 float triggerChance = isBerserk ? 0.50F : 0.25F;
                 if (theMaid.onGround && theMaid.getRNG().nextFloat() < triggerChance) {
                         this.actionDelayTimer = 8; 
                         this.pendingBackstep = true; 
                         theMaid.hurtResistantTime = 40; // 起手即霸体
                 }
-
 
                 //theMaid.moveback();
                 if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
