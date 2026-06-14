@@ -13,11 +13,23 @@ public class ComparatorLMNearestAttackableTargetSorter<T extends EntityLivingBas
 		this.theEntity = par1Entity;
 	}
 
-	public int compareDistanceSq(EntityLivingBase par1Entity, EntityLivingBase par2Entity) {
-		double var3 = this.theEntity.getDistanceSq(par1Entity);
-		double var5 = this.theEntity.getDistanceSq(par2Entity);
-		return var3 < var5 ? -1 : (var3 > var5 ? 1 : 0);
-	}
+	        public int compareDistanceSq(EntityLivingBase par1Entity, EntityLivingBase par2Entity) {
+                // ====== 修改 1：绝对护主优先级 ======
+                if (this.theEntity instanceof net.minecraft.entity.player.EntityPlayer) {
+                        net.minecraft.entity.player.EntityPlayer master = (net.minecraft.entity.player.EntityPlayer) this.theEntity;
+                        
+                        boolean p1AttackingMaster = (par1Entity.getAttackTarget() == master);
+                        boolean p2AttackingMaster = (par2Entity.getAttackTarget() == master);
+
+                        if (p1AttackingMaster && !p2AttackingMaster) return -1;
+                        if (!p1AttackingMaster && p2AttackingMaster) return 1;
+                }
+
+                // ====== 修改 2：次级优先级（就主人近原则） ======
+                double var3 = this.theEntity.getDistanceSq(par1Entity);
+                double var5 = this.theEntity.getDistanceSq(par2Entity);
+                return var3 < var5 ? -1 : (var3 > var5 ? 1 : 0);
+        }
 
 	@Override
 	public int compare(EntityLivingBase par1Obj, EntityLivingBase par2Obj) {
