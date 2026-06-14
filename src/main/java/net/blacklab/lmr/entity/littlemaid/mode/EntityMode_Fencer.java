@@ -2,7 +2,7 @@ package net.blacklab.lmr.entity.littlemaid.mode;
 
 import java.util.List;
 import java.util.UUID;
-
+import net.minecraft.util.math.MathHelper;
 import net.blacklab.lmr.LittleMaidReengaged;
 import net.blacklab.lmr.achievements.AchievementsLMRE;
 import net.blacklab.lmr.achievements.AchievementsLMRE.AC;
