@@ -393,7 +393,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                         theMaid.getNavigator().clearPath();
                 }
                 return;
-        } // 结束 updateTask() 方法的大括号
+             } 
+        } 
 
         @Override
         public void setEnable(boolean pFlag) {
