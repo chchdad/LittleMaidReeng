@@ -143,13 +143,19 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.setRevengeTarget(null);
 //		theMaid.maidAvatar.stopActiveHand();
 	}
-
-	        @Override
+        @Override
         public void updateTask() {
                 theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+                // =======================================================
+                // 如果她正处于突刺状态，且双脚已经落地（或者掉进水里）
+                if (this.isDashBuff && (theMaid.onGround || theMaid.isInWater())) {
+                        this.isDashBuff = false; // 没打中？没收必杀标记！
+                        theMaid.hurtResistantTime = 0; // 落地瞬间强制清空霸体无敌！
+                }
+
 
                 // =======================================================
-                // 【🥷 核心中枢：多段式刺客状态机 (FSM)】
+                //多段式刺客状态机 (FSM)
                 // =======================================================
                 // 1. 飞行/滑步期间，大脑挂机，让物理引擎飞一会儿
                 if (retreatTimer > 0) {
@@ -181,27 +187,26 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                                         pendingDash = true;
                                         actionDelayTimer = 15; // 在远处停顿 15 刻 (0.75秒)
                                 } 
-                                                                // 阶段 B：执行致命突进
+                                // 阶段 B：执行致命突进
                                 else if (pendingDash) {
                                         pendingDash = false;
                                         double dX = entityTarget.posX - theMaid.posX;
                                         double dZ = entityTarget.posZ - theMaid.posZ;
                                         double distance = Math.sqrt(dX * dX + dZ * dZ);
                                         if (distance >= 0.0001D) {
-                                                theMaid.motionX = (dX / distance) * 1.2D; 
-                                                theMaid.motionZ = (dZ / distance) * 1.2D;
-                                                theMaid.motionY = 0.25D; 
+                                                // 稍微把推力降到 0.9D，配合急刹车手感更好
+                                                theMaid.motionX = (dX / distance) * 0.9D; 
+                                                theMaid.motionZ = (dZ / distance) * 0.9D;
+                                                theMaid.motionY = 0.2D; 
                                                 theMaid.velocityChanged = true;
                                         }
                                         
-                                        // 【霸体护甲 (I-frames)】
-                                        // 给予 20 刻 (1秒) 的完全伤害免疫，确保突进不被打断！
+                                        
                                         theMaid.hurtResistantTime = 20; 
                                         
-                                        // 【点亮必杀标记】
                                         this.isDashBuff = true; 
                                         
-                                        retreatTimer = 10; 
+                                        // 不锁大脑，让她飞过去的瞬间，下方的原版距离判定能立刻抓住她触发攻击！
                                 }
 
                         }
@@ -264,22 +269,28 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// 攻撃
-		                       // 原版攻击
+                // 原版攻击
                 theMaid.attackEntityAsMob(entityTarget);
                 
+                // =======================================================
                 if (this.isDashBuff) {
                         this.isDashBuff = false; // 消耗掉 Buff
                         
-                        // 1. 物理引擎干涉：强制大击退 (把怪物往后轰飞)
+                        // 【命中瞬间强制清空动量，急刹车防穿模！】
+                        theMaid.motionX = 0.0D;
+                        theMaid.motionY = 0.0D;
+                        theMaid.motionZ = 0.0D;
+                        theMaid.velocityChanged = true;
+                        
+                        // 强制大击退 (把怪物往后轰飞)
                         double knockX = entityTarget.posX - theMaid.posX;
                         double knockZ = entityTarget.posZ - theMaid.posZ;
                         double d = Math.sqrt(knockX * knockX + knockZ * knockZ);
                         if (d > 0) {
-                                // 赋予怪物 0.8D 的水平推力和 0.3D 的击飞高度
                                 entityTarget.addVelocity((knockX / d) * 0.8D, 0.3D, (knockZ / d) * 0.8D);
                         }
                         
-                        // 2. 听觉与视觉反馈：强制播放暴击音效与满天星星粒子
+                        // 听觉与视觉反馈
                         theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
                         if (worldObj instanceof net.minecraft.world.WorldServer) {
                                 ((net.minecraft.world.WorldServer)worldObj).spawnParticle(
@@ -289,6 +300,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                                 );
                         }
                 }
+                // =======================================================
+
 
 
                 // 普攻打完后，如果在地上，有 25% 的概率启动完整连招
