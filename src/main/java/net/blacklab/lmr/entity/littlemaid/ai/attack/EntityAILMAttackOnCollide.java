@@ -35,6 +35,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected int actionDelayTimer = 0; // 动作之间的停顿间隔
     protected boolean pendingBackstep = false; // 标记：准备后撤
     protected boolean pendingDash = false; // 标记：准备突进
+	// 【新增：突进强力一击的 Buff 标记】
+    protected boolean isDashBuff = false; 
 
 	public boolean isGuard;
 
@@ -179,23 +181,29 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                                         pendingDash = true;
                                         actionDelayTimer = 15; // 在远处停顿 15 刻 (0.75秒)
                                 } 
-                                // 阶段 B：执行致命突进
+                                                                // 阶段 B：执行致命突进
                                 else if (pendingDash) {
                                         pendingDash = false;
                                         double dX = entityTarget.posX - theMaid.posX;
                                         double dZ = entityTarget.posZ - theMaid.posZ;
                                         double distance = Math.sqrt(dX * dX + dZ * dZ);
                                         if (distance >= 0.0001D) {
-                                                // 2倍速反扑，并附带轻微腾空（突进跳劈前置动作）
                                                 theMaid.motionX = (dX / distance) * 1.2D; 
                                                 theMaid.motionZ = (dZ / distance) * 1.2D;
                                                 theMaid.motionY = 0.25D; 
                                                 theMaid.velocityChanged = true;
                                         }
                                         
-                                        // 给突进留下飞行时间，期间禁止原版寻路干扰
+                                        // 【霸体护甲 (I-frames)】
+                                        // 给予 20 刻 (1秒) 的完全伤害免疫，确保突进不被打断！
+                                        theMaid.hurtResistantTime = 20; 
+                                        
+                                        // 【点亮必杀标记】
+                                        this.isDashBuff = true; 
+                                        
                                         retreatTimer = 10; 
                                 }
+
                         }
                         // 在停顿倒计时期间，绝对禁止往前走或攻击（产生硬直感）
                         return; 
