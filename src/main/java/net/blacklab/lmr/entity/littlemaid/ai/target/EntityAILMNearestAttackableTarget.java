@@ -77,17 +77,23 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 			theNearestAttackableTargetSorter.setEntity(theMaid);
 		}
 		Collections.sort(llist, theNearestAttackableTargetSorter);
-		Iterator<T> nearEntityCollectionsIterator = llist.iterator();
-		while (nearEntityCollectionsIterator.hasNext()) {
-			T lentity = (T)nearEntityCollectionsIterator.next();
-			if (lentity == theMaid.getAttackTarget()) {
-				return true;
-			}
-			if (lentity.isEntityAlive() && this.isSuitableTargetLM(lentity, false)) {
-				this.targetEntity = lentity;
-				return true;
-			}
-		}
+		                Iterator<T> nearEntityCollectionsIterator = llist.iterator();
+                while (nearEntityCollectionsIterator.hasNext()) {
+                        T lentity = (T)nearEntityCollectionsIterator.next();
+                        if (lentity == theMaid.getAttackTarget()) {
+                                return true;
+                        }
+                        
+                        System.out.println("[LMR-RADAR-DEBUG] 正在鉴定潜在目标: " + lentity.getName() + " | 距主人: " + lentity.getDistanceSq(theMaid.getMaidMasterEntity()) + " | 距女仆: " + lentity.getDistanceSq(theMaid));
+                        
+                        if (lentity.isEntityAlive() && this.isSuitableTargetLM(lentity, false)) {
+                                System.out.println("[LMR-RADAR-DEBUG] -> 鉴定通过！雷达最终锁定: " + lentity.getName());
+                                this.targetEntity = lentity;
+                                return true;
+                        } else {
+                                System.out.println("[LMR-RADAR-DEBUG] -> 鉴定失败！直接丢弃: " + lentity.getName());
+                        }
+                }
 
 		return false;
 	}
@@ -125,20 +131,23 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 			if (!lailm.checkEntity(theMaid.getMaidModeString(), pTarget)) {
 				return false;
 			}
-		} else {
-			if (theMaid.getIFF(pTarget)) {
-				return false;
-			}
-			// Can't reach target
-			if (!MaidHelper.isTargetReachable(theMaid, pTarget, 0)) {
-				return false;
-			}
-		}
+		                } else {
+                        if (theMaid.getIFF(pTarget)) {
+                                return false;
+                        }
+                        // Can't reach target
+                        if (!MaidHelper.isTargetReachable(theMaid, pTarget, 0)) {
+                                System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: MaidHelper.isTargetReachable() 判定此怪无法抵达 (可能被墙挡住或距离过远)！");
+                                return false;
+                        }
+                }
 
-		// ターゲットが見えない
-		if (shouldCheckSight && !taskOwner.getEntitySenses().canSee(pTarget)) {
-			return false;
-		}
+                // ターゲットが見えない
+                if (shouldCheckSight && !taskOwner.getEntitySenses().canSee(pTarget)) {
+                        System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: 视线被遮挡 (canSee = false)！");
+                        return false;
+                }
+
 
 		// 攻撃中止判定？
 		if (this.fretarget) {
