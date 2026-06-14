@@ -18,8 +18,9 @@ public class ComparatorLMNearestAttackableTargetSorter<T extends EntityLivingBas
                 if (this.theEntity instanceof net.minecraft.entity.player.EntityPlayer) {
                         net.minecraft.entity.player.EntityPlayer master = (net.minecraft.entity.player.EntityPlayer) this.theEntity;
                         
-                        boolean p1AttackingMaster = (par1Entity.getAttackTarget() == master);
-                        boolean p2AttackingMaster = (par2Entity.getAttackTarget() == master);
+                        // 先判断实体是否具有 AI (EntityLiving)，再强转获取它的攻击目标
+                        boolean p1AttackingMaster = (par1Entity instanceof net.minecraft.entity.EntityLiving) && (((net.minecraft.entity.EntityLiving) par1Entity).getAttackTarget() == master);
+                        boolean p2AttackingMaster = (par2Entity instanceof net.minecraft.entity.EntityLiving) && (((net.minecraft.entity.EntityLiving) par2Entity).getAttackTarget() == master);
 
                         if (p1AttackingMaster && !p2AttackingMaster) return -1;
                         if (!p1AttackingMaster && p2AttackingMaster) return 1;
