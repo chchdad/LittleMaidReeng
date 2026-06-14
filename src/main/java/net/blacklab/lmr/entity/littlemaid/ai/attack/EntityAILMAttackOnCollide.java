@@ -13,6 +13,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.pathfinding.Path;
 import net.minecraft.util.EnumHand;
 import net.minecraft.world.World;
+import net.minecraft.util.math.MathHelper;
 
 /**
  * メイドさんの直接攻撃系処理
