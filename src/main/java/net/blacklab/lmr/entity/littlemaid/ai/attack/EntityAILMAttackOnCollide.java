@@ -176,14 +176,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                                 theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
                 
                 // =======================================================
-                // 【🩸 50% 半血狂暴系统】
+                // 【 50% 半血狂暴系统】
                 // =======================================================
                 boolean isBerserk = theMaid.getHealth() <= theMaid.getMaxHealth() * 0.50F;
                 theMaid.setBloodsuck(isBerserk); // 半血以下直接红温！
                 // =======================================================
                 
                 // =======================================================
-                // 【✨ 修复：精准落地取消机制 (防误判偷Buff)】
+                // 【修复：精准落地取消机制 (防误判偷Buff)】
                 // =======================================================
                 // 如果带着突刺Buff，双脚在地上，并且【水平动量已经近乎停止】（说明飞完且没打中）
                 if (this.isDashBuff && theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
@@ -322,23 +322,26 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                 theMaid.attackEntityAsMob(entityTarget);
                 
                 // =======================================================
-                // 【💥 核心增强：突刺命中急刹车与暴击结算】
-                // =======================================================
+			//击飞
                 if (this.isDashBuff) {
                         this.isDashBuff = false; // 消耗掉 Buff
                         
-                        // 【命中瞬间强制清空动量，急刹车防穿模！】
+                        // 【急刹车防穿模】
                         theMaid.motionX = 0.0D;
                         theMaid.motionY = 0.0D;
                         theMaid.motionZ = 0.0D;
                         theMaid.velocityChanged = true;
                         
-                        // 强制大击退
-                        double knockX = entityTarget.posX - theMaid.posX;
-                        double knockZ = entityTarget.posZ - theMaid.posZ;
-                        double d = Math.sqrt(knockX * knockX + knockZ * knockZ);
-                        if (d > 0) {
-                                entityTarget.addVelocity((knockX / d) * 0.8D, 0.3D, (knockZ / d) * 0.8D);
+                        // 【🚀 修复：无视抗性的绝对击飞！】
+                        if (entityTarget instanceof EntityLivingBase) {
+                                // 使用原版 knockBack 函数，参数：攻击者, 强度, X轴偏角, Z轴偏角
+                                // 强度设为 1.5F (极强)，这能一脚把怪物踹出 3-4 格远！
+                                ((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
+                                        (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
+                                        (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+                                
+                                // 强制同步给客户端，确保你画面里能看到怪物飞出去！
+                                entityTarget.velocityChanged = true; 
                         }
                         
                         // 听觉与视觉反馈
@@ -352,6 +355,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
                         }
                 }
                 // =======================================================
+
 
                 // =======================================================
                 // 【连招起手式】
