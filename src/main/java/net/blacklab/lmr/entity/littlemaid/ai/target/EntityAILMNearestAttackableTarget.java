@@ -53,16 +53,20 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 		}
 
 		double lfollowRange;
-		if (!(
-				taskOwner instanceof EntityLittleMaid && ((EntityLittleMaid) taskOwner).jobController.getActiveModeClass() != null &&
-				(lfollowRange = ((EntityLittleMaid) taskOwner).jobController.getActiveModeClass().getDistanceToSearchTargets()) > 0
-				)) {
-			lfollowRange = getTargetDistance();
-		}
+		        // ========================================================
+                // 修改 3：雷达扫描中心偏移
+                // ========================================================
+                net.minecraft.util.math.AxisAlignedBB searchBox;
+                if (theMaid.getMaidMasterEntity() != null && !theMaid.isBloodsuck()) {
+                        searchBox = theMaid.getMaidMasterEntity().getEntityBoundingBox().grow(lfollowRange, 8.0D, lfollowRange);
+                        theNearestAttackableTargetSorter.setEntity(theMaid.getMaidMasterEntity());
+                } else {
+                        searchBox = taskOwner.getEntityBoundingBox().grow(lfollowRange, 8.0D, lfollowRange);
+                        theNearestAttackableTargetSorter.setEntity(theMaid);
+                }
 
-		List<T> llist = this.taskOwner.getEntityWorld()
-				.getEntitiesWithinAABB(targetClass, 
-						taskOwner.getEntityBoundingBox().grow(lfollowRange, 8.0D, lfollowRange));
+                List<T> llist = this.taskOwner.getEntityWorld().getEntitiesWithinAABB(targetClass, searchBox);
+
 		
 		if (theMaid.getMaidMasterEntity() != null && !theMaid.isBloodsuck()) {
 			// ソーターを主中心へ
