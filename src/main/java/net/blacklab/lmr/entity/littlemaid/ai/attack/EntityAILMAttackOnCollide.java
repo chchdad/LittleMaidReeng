@@ -32,6 +32,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected int rerouteTimer;
 	protected double attackRange;
 	protected int retreatTimer = 0; 
+	protected int actionDelayTimer = 0; // 动作之间的停顿间隔
+    protected boolean pendingBackstep = false; // 标记：准备后撤
+    protected boolean pendingDash = false; // 标记：准备突进
 
 	public boolean isGuard;
 
@@ -139,16 +142,65 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 //		theMaid.maidAvatar.stopActiveHand();
 	}
 
-	@Override
-	        public void updateTask() {
+	        @Override
+        public void updateTask() {
                 theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
-
+                // =======================================================
+                // 【🥷 核心中枢：多段式刺客状态机 (FSM)】
+                // =======================================================
+                // 1. 飞行/滑步期间，大脑挂机，让物理引擎飞一会儿
                 if (retreatTimer > 0) {
                         retreatTimer--;
-                        return; // 强制结束本回合大脑运算，阻止后续的寻路和攻击
+                        return; 
                 }
-                // =======================================================
+
+                // 2. 停顿间隔控制器
+                if (actionDelayTimer > 0) {
+                        actionDelayTimer--;
+                        
+                        // 当停顿结束时，触发积压的后续动作！
+                        if (actionDelayTimer <= 0) {
+                                
+                                // 阶段 A：执行战术后撤
+                                if (pendingBackstep) {
+                                        pendingBackstep = false;
+                                        double dX = theMaid.posX - entityTarget.posX;
+                                        double dZ = theMaid.posZ - entityTarget.posZ;
+                                        double distance = Math.sqrt(dX * dX + dZ * dZ);
+                                        if (distance >= 0.0001D) {
+                                                theMaid.motionX = (dX / distance) * 0.6D;
+                                                theMaid.motionZ = (dZ / distance) * 0.6D;
+                                                theMaid.motionY = 0.0D; // 贴地滑步
+                                                theMaid.velocityChanged = true;
+                                        }
+                                        
+                                        // 滑步完成后，进入下一阶段：在远处观察并准备突进！
+                                        pendingDash = true;
+                                        actionDelayTimer = 15; // 在远处停顿 15 刻 (0.75秒)
+                                } 
+                                // 阶段 B：执行致命突进
+                                else if (pendingDash) {
+                                        pendingDash = false;
+                                        double dX = entityTarget.posX - theMaid.posX;
+                                        double dZ = entityTarget.posZ - theMaid.posZ;
+                                        double distance = Math.sqrt(dX * dX + dZ * dZ);
+                                        if (distance >= 0.0001D) {
+                                                // 2倍速反扑，并附带轻微腾空（突进跳劈前置动作）
+                                                theMaid.motionX = (dX / distance) * 1.2D; 
+                                                theMaid.motionZ = (dZ / distance) * 1.2D;
+                                                theMaid.motionY = 0.25D; 
+                                                theMaid.velocityChanged = true;
+                                        }
+                                        
+                                        // 给突进留下飞行时间，期间禁止原版寻路干扰
+                                        retreatTimer = 10; 
+                                }
+                        }
+                        // 在停顿倒计时期间，绝对禁止往前走或攻击（产生硬直感）
+                        return; 
+                }
+			
 		if (--rerouteTimer <= 0) {
 			if (isReroute) {
 				// リルート
@@ -206,26 +258,20 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		// 攻撃
 		                // 原版攻击
                 theMaid.attackEntityAsMob(entityTarget);
+                
+                // =======================================================
+                // 【🥷 连招起手式：触发状态机】
+                // =======================================================
+                // 普攻打完后，如果在地上，有 25% 的概率启动完整连招
                 if (theMaid.onGround && theMaid.getRNG().nextFloat() < 0.25F) {
-                        // 激活撤退状态，冻结大脑寻路 15 刻 (0.75秒)
-                        this.retreatTimer = 15; 
-                        
-                        // 计算怪物到女仆的反向逃离向量
-                        double dX = theMaid.posX - entityTarget.posX;
-                        double dZ = theMaid.posZ - entityTarget.posZ;
-                        double distance = Math.sqrt(dX * dX + dZ * dZ);
-                        
-                        if (distance >= 0.0001D) {
-                                // 注入反向物理推力！
-                                theMaid.motionX = (dX / distance) * 0.6D;
-                                theMaid.motionZ = (dZ / distance) * 0.6D;
-                                theMaid.motionY = 0.35D; // 小后跳腾空
-                                theMaid.velocityChanged = true;
-                        }
+                        // 不再立刻后滑，而是先原地僵直 4 刻 (0.2秒) 营造打击感
+                        this.actionDelayTimer = 4; 
+                        // 告诉大脑：停顿结束后，立刻进入后撤阶段
+                        this.pendingBackstep = true; 
                 }
                 // =======================================================
 
-                                //theMaid.moveback();
+                //theMaid.moveback();
                 if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
                         // 対象を再設定させる
                         theMaid.setAttackTarget(null);
