@@ -81,9 +81,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.maidAvatar.stopActiveHand();
 	}
 
-	@Override
+		@Override
 	public boolean shouldContinueExecuting() {
-		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || retreatTimer > 0) {
+		// 【ACT动作锁】如果是连招期间，或者【正在冲刺飞行中(isDashBuff)】，强制接管不准打断！
+		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || retreatTimer > 0 || isDashBuff) {
 			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) {
 				return true; 
 			}
