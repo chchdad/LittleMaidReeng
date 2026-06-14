@@ -39,7 +39,6 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 		setMutexBits(1);
 	}
 
-
 	@Override
 	public boolean shouldExecute() {
 		if (targetEntity != null && targetEntity.isEntityAlive() && taskOwner.getAttackTarget() == targetEntity) {
@@ -48,77 +47,55 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 
 		if (this.targetChance > 0 && this.taskOwner.getRNG().nextInt(this.targetChance) != 0) {
 			return false;
-//		} else if (theMaid.getAttackTarget() != null) {
-//			return true;
 		}
 
-		 		// =======================================================
-		// 5. 极速斩击判定 (瞬间转身 + 110度防背刺视觉保护)
-		// =======================================================
-		double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
-		attackRangeSq *= attackRangeSq;
-		double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
-		
-		if (currentDistSq <= attackRangeSq) {
-			// 【核心修正】：贴脸瞬间，强行把身体和头扭向怪物，根除转身慢导致的发呆！
-			double tdx = entityTarget.posX - theMaid.posX;
-			double tdz = entityTarget.posZ - theMaid.posZ;
-			float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
-			
-			// 强行正骨，瞬间锁定目标
-			theMaid.rotationYaw = targetYaw;
-			theMaid.rotationYawHead = targetYaw;
-			theMaid.renderYawOffset = targetYaw;
-
-			// 恢复原版 110度 角度计算 (防止模型视觉上出现“背刺”)
-			double vdx = -Math.sin(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
-			double vdz = Math.cos(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
-			double ld = (tdx * vdx + tdz * vdz) / (Math.sqrt(tdx * tdx + tdz * tdz) * Math.sqrt(vdx * vdx + vdz * vdz));
-			
-			// 必须满足在正面 110 度内，且武器 CD 就绪
-			boolean canSlashNow = (ld >= -0.35D) && (theMaid.getSwingStatusDominant().canAttack() || entityTarget.hurtResistantTime <= 5);
-
-			if (canSlashNow) {
-				System.out.println("[LMR-ATTACK-DEBUG] 转身锁定！贴脸瞬间出刀!");
-				theMaid.attackEntityAsMob(entityTarget);
-				
-				float triggerChance = isBerserk ? 0.50F : 0.25F;
-				if (theMaid.onGround && theMaid.getRNG().nextFloat() < triggerChance) {
-					System.out.println("[LMR-ATTACK-DEBUG] 触发连招体系!");
-					this.actionDelayTimer = 8; 
-					this.pendingBackstep = true; 
-					theMaid.hurtResistantTime = 40; 
-				}
-			}
+		double lfollowRange = 0.0D;
+		if (!(
+				taskOwner instanceof EntityLittleMaid && ((EntityLittleMaid) taskOwner).jobController.getActiveModeClass() != null &&
+				(lfollowRange = ((EntityLittleMaid) taskOwner).jobController.getActiveModeClass().getDistanceToSearchTargets()) > 0
+				)) {
+			lfollowRange = getTargetDistance();
 		}
-	} // 这是 updateTask() 方法的右大括号，请确保替换到这里
 
-		
+		// ========================================================
+		// 核心修改 3：双重雷达并网技术 (彻底消除视野盲区)
+		// ========================================================
+		if (lfollowRange < 16.0D) {
+			lfollowRange = 16.0D;
+		}
+
+		net.minecraft.util.math.AxisAlignedBB searchBox;
 		if (theMaid.getMaidMasterEntity() != null && !theMaid.isBloodsuck()) {
-			// ソーターを主中心へ
+			net.minecraft.util.math.AxisAlignedBB masterBox = theMaid.getMaidMasterEntity().getEntityBoundingBox().grow(lfollowRange, 8.0D, lfollowRange);
+			net.minecraft.util.math.AxisAlignedBB maidBox = taskOwner.getEntityBoundingBox().grow(lfollowRange, 8.0D, lfollowRange);
+			searchBox = masterBox.union(maidBox);
+			
 			theNearestAttackableTargetSorter.setEntity(theMaid.getMaidMasterEntity());
 		} else {
-			// 自分中心にソート
+			searchBox = taskOwner.getEntityBoundingBox().grow(lfollowRange, 8.0D, lfollowRange);
 			theNearestAttackableTargetSorter.setEntity(theMaid);
 		}
+
+		List<T> llist = this.taskOwner.getEntityWorld().getEntitiesWithinAABB(targetClass, searchBox);
 		Collections.sort(llist, theNearestAttackableTargetSorter);
-		                Iterator<T> nearEntityCollectionsIterator = llist.iterator();
-                while (nearEntityCollectionsIterator.hasNext()) {
-                        T lentity = (T)nearEntityCollectionsIterator.next();
-                        if (lentity == theMaid.getAttackTarget()) {
-                                return true;
-                        }
-                        
-                        System.out.println("[LMR-RADAR-DEBUG] 正在鉴定潜在目标: " + lentity.getName() + " | 距主人: " + lentity.getDistanceSq(theMaid.getMaidMasterEntity()) + " | 距女仆: " + lentity.getDistanceSq(theMaid));
-                        
-                        if (lentity.isEntityAlive() && this.isSuitableTargetLM(lentity, false)) {
-                                System.out.println("[LMR-RADAR-DEBUG] -> 鉴定通过！雷达最终锁定: " + lentity.getName());
-                                this.targetEntity = lentity;
-                                return true;
-                        } else {
-                                System.out.println("[LMR-RADAR-DEBUG] -> 鉴定失败！直接丢弃: " + lentity.getName());
-                        }
-                }
+		
+		Iterator<T> nearEntityCollectionsIterator = llist.iterator();
+		while (nearEntityCollectionsIterator.hasNext()) {
+			T lentity = (T)nearEntityCollectionsIterator.next();
+			if (lentity == theMaid.getAttackTarget()) {
+				return true;
+			}
+			
+			System.out.println("[LMR-RADAR-DEBUG] 正在鉴定潜在目标: " + lentity.getName() + " | 距主人: " + lentity.getDistanceSq(theMaid.getMaidMasterEntity()) + " | 距女仆: " + lentity.getDistanceSq(theMaid));
+			
+			if (lentity.isEntityAlive() && this.isSuitableTargetLM(lentity, false)) {
+				System.out.println("[LMR-RADAR-DEBUG] -> 鉴定通过！雷达最终锁定: " + lentity.getName());
+				this.targetEntity = lentity;
+				return true;
+			} else {
+				System.out.println("[LMR-RADAR-DEBUG] -> 鉴定失败！直接丢弃: " + lentity.getName());
+			}
+		}
 
 		return false;
 	}
@@ -132,10 +109,7 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 		fretryCounter = 0;
 	}
 
-	//	@Override
 	protected boolean isSuitableTargetLM(Entity pTarget, boolean par2) {
-		// LMM用にカスタム
-		// 非生物も対象のため別クラス
 		if (pTarget == null) {
 			return false;
 		}
@@ -156,23 +130,22 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 			if (!lailm.checkEntity(theMaid.getMaidModeString(), pTarget)) {
 				return false;
 			}
-		                } else {
-                        if (theMaid.getIFF(pTarget)) {
-                                return false;
-                        }
-                        // Can't reach target
-                        if (!MaidHelper.isTargetReachable(theMaid, pTarget, 0)) {
-                                System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: MaidHelper.isTargetReachable() 判定此怪无法抵达 (可能被墙挡住或距离过远)！");
-                                return false;
-                        }
-                }
+		} else {
+			if (theMaid.getIFF(pTarget)) {
+				return false;
+			}
+			// Can't reach target
+			if (!MaidHelper.isTargetReachable(theMaid, pTarget, 0)) {
+				System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: MaidHelper.isTargetReachable() 判定此怪无法抵达 (可能被墙挡住或距离过远)！");
+				return false;
+			}
+		}
 
-                // ターゲットが見えない
-                if (shouldCheckSight && !taskOwner.getEntitySenses().canSee(pTarget)) {
-                        System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: 视线被遮挡 (canSee = false)！");
-                        return false;
-                }
-
+		// ターゲットが見えない
+		if (shouldCheckSight && !taskOwner.getEntitySenses().canSee(pTarget)) {
+			System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: 视线被遮挡 (canSee = false)！");
+			return false;
+		}
 
 		// 攻撃中止判定？
 		if (this.fretarget) {
@@ -192,11 +165,9 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 		return true;
 	}
 
-	// 最終位置が攻撃の間合いでなければ失敗
 	protected boolean func_75295_a(Entity par1EntityLiving) {
 		this.fretryCounter = 10 + this.taskOwner.getRNG().nextInt(5);
 		Path var2 = taskOwner.getNavigator().getPathToXYZ(par1EntityLiving.posX, par1EntityLiving.posY, par1EntityLiving.posZ);
-//		PathEntity var2 = this.taskOwner.getNavigator().getPathToEntityLiving(par1EntityLiving);
 
 		if (var2 == null) {
 			return false;
@@ -219,5 +190,4 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 		}
 		return super.getTargetDistance();
 	}
-
 }
