@@ -241,46 +241,18 @@ public class EntityMode_Fencer extends EntityModeBase {
 		return !owner.getIFF(pEntity);
 	}
 	
-	@Override
-	public void updateAITick(String pMode) {
-		super.updateAITick(pMode);
-		if (pMode.equals(mmode_Fencer)|| pMode.equals(mmode_Bloodsucker)) {
-			// Charge(boost moving speed)
-			ticksCharge.onUpdate();
-			EntityLivingBase targetEntity = owner.getAttackTarget();
-			if (targetEntity != null && !targetEntity.isDead) {
-				if (!ticksCharge.isDelay()) {
-					// Reset counter
-					ticksCharge.setValue(CHARGE_COUNTER_MAX_VALUE);
-				}
-				if (ticksCharge.isEnable()) {
-					// Keep boosting speed
-					IAttributeInstance maidAttribute;
-					if (!(maidAttribute = owner.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED)).hasModifier(CHARGING_BOOST_MODIFIER)) {
-						maidAttribute.applyModifier(CHARGING_BOOST_MODIFIER);
-					}
-				} else {
-					// Reset speed
-					resetSpeed();
-				}
-			} else {
-				// no target or target died
-				resetSpeed();
-				if (ticksCharge.isEnable()) {
-					ticksCharge.setValue(0);
-				}
-			}
-		}
-	}
+	        @Override
+        public void updateAITick(String pMode) {
+                super.updateAITick(pMode);
+                
+                // 【弃 ticksCharge 移速叠加！】
+                // 现在的位移节奏（后撤、停顿、突进）已 100% 交由 EntityAILMAttackOnCollide 的 FSM 状态机接管！
+                // 留空即可，不要让她再底层乱加移速了。
+        }
+
 	/**
 	 * Reset AI speed once.
 	 */
-	protected void resetSpeed() {
-		IAttributeInstance maidAttribute;
-		if ((maidAttribute = owner.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED)).hasModifier(CHARGING_BOOST_MODIFIER)) {
-			maidAttribute.removeModifier(CHARGING_BOOST_UUID);
-		}
-	}
 
 	@Override
 	public double getDistanceToSearchTargets() {
