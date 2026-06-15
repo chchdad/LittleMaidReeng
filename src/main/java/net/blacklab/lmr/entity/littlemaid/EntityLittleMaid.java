@@ -2224,56 +2224,13 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		*/
 		LittleMaidReengaged.Debug(String.format("GetDamage ID:%d, %s, %f/ %f" , getEntityId(), par1DamageSource.damageType, llasthealth - getHealth(), damageAmount));
 //		super.damageEntity(par1DamageSource, par2);
-	   }
-	
+	}
 
 	@Override
-		public boolean attackEntityFrom(DamageSource par1DamageSource, float par2) {
+	public boolean attackEntityFrom(DamageSource par1DamageSource, float par2) {
 		if (getEntityWorld().isRemote) {
 			return false;
 		}
-
-		// =======================================================
-		// 独立模块测试：定向防爆、举盾与锁血兜底
-		// =======================================================
-		if (par1DamageSource.isExplosion()) {
-			float currentHp = this.getHealth();
-
-			// 规则 1：如果此时血量大于 1 点，才触发防爆机制（1点血被炸直接顺其自然）
-			if (currentHp > 1.0F) {
-				
-				// 规则 2：强制转身面向爆炸源 (防背刺)
-				net.minecraft.entity.Entity exploder = par1DamageSource.getTrueSource(); 
-				if (exploder == null) exploder = par1DamageSource.getImmediateSource(); 
-				
-				if (exploder != null) {
-					double dX = exploder.posX - this.posX;
-					double dZ = exploder.posZ - this.posZ;
-					float targetYaw = (float)(Math.atan2(dZ, dX) * 180.0D / Math.PI) - 90.0F;
-					this.rotationYaw = targetYaw;
-					this.rotationYawHead = targetYaw;
-					this.renderYawOffset = targetYaw;
-				}
-
-				// 规则 3：触发举盾防御动作
-				boolean hasShield = !this.getHeldItemOffhand().isEmpty() && this.getHeldItemOffhand().getItem() instanceof net.minecraft.item.ItemShield;
-				this.setActiveHand(hasShield ? net.minecraft.util.EnumHand.OFF_HAND : net.minecraft.util.EnumHand.MAIN_HAND);
-				this.shieldBlockTimer = 10; 
-				
-				this.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + this.getRNG().nextFloat() * 0.4F);
-
-				// 规则 4：计算伤害兜底与锁血
-				if (currentHp - par2 < 1.0F) {
-					par2 = currentHp - 1.0F; 
-					this.hurtResistantTime = 60; 
-					System.out.println("[LMR-DEFENSE] 致命爆炸！锁血 1 点，进入强力无敌状态！");
-				} else {
-					par2 = par2 * 0.1F; 
-					System.out.println("[LMR-DEFENSE] 完美防爆！举盾抵消了 90% 的伤害！");
-				}
-			}
-		}
-
 
 		Entity entity = par1DamageSource.getTrueSource();
 		boolean force = true;
@@ -2632,27 +2589,19 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 //	}
 
 	@SuppressWarnings("deprecation")
-	
-	// 新增：维持举盾动作的计时器 (0.5秒)
-	public int shieldBlockTimer = 0;
-
 	@Override
 	public void onLivingUpdate() {
-		
-
-		// =======================================================
-		// 举盾动作视觉维持 (10 ticks = 0.5秒)
-		// =======================================================
-		if (shieldBlockTimer > 0) {
-			shieldBlockTimer--;
-			if (shieldBlockTimer <= 0) {
-				this.resetActiveHand(); // 0.5秒结束，强制放下盾牌/武器
-			}
-	  }
-	
-	
-		
-
+		float lhealth = getHealth();
+		if (lhealth > 0) {
+			if (!getEntityWorld().isRemote) {
+				if (getSwingStatusDominant().canAttack()) {
+					// 通常時は回復優先
+					HEALPHASE: if (lhealth < getMaxHealth() && ticksSinceLastDamage <= 0) {
+						if (isBloodsuck() && getAttackTarget() != null) {
+							break HEALPHASE;
+						}
+						consumeSugar(EnumConsumeSugar.HEAL);
+					}
 
 					// つまみ食い
 					float jobFactor = this.jobController.getActiveModeClass() != null ? this.jobController.getActiveModeClass().getSugarSpeed() : 1;
@@ -2668,9 +2617,10 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 							// 契約更新
 							consumeSugar(EnumConsumeSugar.RECONTRACT);
 						}
+					}
 				}
-			
-		
+			}
+		}
 
 //		//雪合戦試験
 //		if ((isFreedom() || !isContractEX()) && getEntityWorld().isDaytime() && !isPlaying() 
@@ -2822,7 +2772,7 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 			}
 
 		}
-	
+	}
 
 	public Counter getMaidOverDriveTime() {
 		return maidOverDriveTime;
@@ -5554,3 +5504,4 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		}
 		return false;
 	}
+}
