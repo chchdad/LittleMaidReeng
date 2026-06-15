@@ -2822,6 +2822,7 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 			}
 
 		}
+	
 
 	public Counter getMaidOverDriveTime() {
 		return maidOverDriveTime;
@@ -5553,4 +5554,3 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		}
 		return false;
 	}
-}
