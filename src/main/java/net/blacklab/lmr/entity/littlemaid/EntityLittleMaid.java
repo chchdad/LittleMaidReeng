@@ -2224,7 +2224,9 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		*/
 		LittleMaidReengaged.Debug(String.format("GetDamage ID:%d, %s, %f/ %f" , getEntityId(), par1DamageSource.damageType, llasthealth - getHealth(), damageAmount));
 //		super.damageEntity(par1DamageSource, par2);
+	   }
 	}
+	
 
 	@Override
 		public boolean attackEntityFrom(DamageSource par1DamageSource, float par2) {
@@ -2647,8 +2649,8 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 			if (shieldBlockTimer <= 0) {
 				this.resetActiveHand(); // 0.5秒结束，强制放下盾牌/武器
 			}
-		  }
-		}
+	  }
+	
 	
 		
 
