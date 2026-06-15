@@ -1564,32 +1564,29 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 	public int colorMultiplier(float pLight, float pPartialTicks) {
 		// 発光処理用
 		int lbase = 0, i = 0, j = 0, k = 0, x = 0, y = 0;
-		if (maidOverDriveTime.isDelay()) {
-			j = 0x00df0000;
-			if (maidOverDriveTime.isEnable()) {
-				x = 128;
-			}else{
+		
+		// ====== 融合 Bloodsuck 与 OverDrive 变色特效 ======
+		// 只要是处于狂暴吸血状态 (isBloodsuck)，或者处于原版超频状态 (OverDrive)，都会发红光！
+		if (this.isBloodsuck() || maidOverDriveTime.isDelay()) {
+			j = 0x00df0000; // 原汁原味的嗜血红
+			if (this.isBloodsuck() || maidOverDriveTime.isEnable()) {
+				x = 128; // 保持高亮稳定
+			} else {
 				x = (int) (128 - maidOverDriveTime.getValue() * (128f / 32));
 			}
 		}
-//		if (registerTick.isDelay()) {
-//			k = 0x0000df00;
-//			if (registerTick.isEnable()) {
-//				y = 128;
-//			}else{
-//				y = (int) (128 - registerTick.getValue() * (128f / 20));
-//			}
-//		}
-		i = x==0 ? (y>=128 ? y : 0) : (y==0 ? x : Math.min(x, y));
-		lbase = i << 24 | j | k;
 
-		if (this.jobController.isActiveModeClass()) {
+		if (this.jobController != null && this.jobController.getActiveModeClass() != null) {
 			lbase = lbase | this.jobController.getActiveModeClass().colorMultiplier(pLight, pPartialTicks);
+		}
+
+		// 组合透明度和颜色
+		if (x > 0 || y > 0) {
+			lbase = (Math.max(x, y) << 24) | j | k;
 		}
 
 		return lbase;
 	}
-
 
 	// AI関連
 	protected boolean isAIEnabled() {
