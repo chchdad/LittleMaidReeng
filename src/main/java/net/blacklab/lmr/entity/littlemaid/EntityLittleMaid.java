@@ -2225,7 +2225,6 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		LittleMaidReengaged.Debug(String.format("GetDamage ID:%d, %s, %f/ %f" , getEntityId(), par1DamageSource.damageType, llasthealth - getHealth(), damageAmount));
 //		super.damageEntity(par1DamageSource, par2);
 	   }
-	}
 	
 
 	@Override
