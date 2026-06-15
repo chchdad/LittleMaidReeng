@@ -2647,7 +2647,9 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 			if (shieldBlockTimer <= 0) {
 				this.resetActiveHand(); // 0.5秒结束，强制放下盾牌/武器
 			}
+		  }
 		}
+	
 		
 
 
