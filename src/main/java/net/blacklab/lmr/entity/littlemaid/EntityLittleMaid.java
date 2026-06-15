@@ -2638,7 +2638,7 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 
 	@Override
 	public void onLivingUpdate() {
-		super.onLivingUpdate();
+		
 
 		// =======================================================
 		// 举盾动作视觉维持 (10 ticks = 0.5秒)
@@ -2669,8 +2669,8 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 							consumeSugar(EnumConsumeSugar.RECONTRACT);
 						}
 				}
-			}
-		}
+			
+		
 
 //		//雪合戦試験
 //		if ((isFreedom() || !isContractEX()) && getEntityWorld().isDaytime() && !isPlaying() 
