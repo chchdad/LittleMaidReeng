@@ -2668,7 +2668,6 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 							// 契約更新
 							consumeSugar(EnumConsumeSugar.RECONTRACT);
 						}
-					}
 				}
 			}
 		}
