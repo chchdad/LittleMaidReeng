@@ -201,10 +201,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			if (pendingBackstep) {
 				theMaid.motionX = 0.0D;
 				theMaid.motionZ = 0.0D;
-				// theMaid.motionY = 0.0D; // (如果你想要滞空就加上)
+				// theMaid.motionY = 0.0D; // (如果滞空就加上)
 				
 				this.isGuard = true; 
-				// 优化：只有当她没举剑的时候，才下达举剑指令！防止手臂鬼畜抽搐！
+				// 只有当她没举剑的时候，才下达举剑指令！防止手臂鬼畜抽搐！
 				if (!theMaid.maidAvatar.isHandActive()) {
 					theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 				}
@@ -272,14 +272,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					double distance = Math.sqrt(dX * dX + dZ * dZ);
 					
 					if (distance >= 0.0001D) {
-						// 死亡冲锋
+						// 冲锋
 						theMaid.motionX = (dX / distance) * 1.2D; 
 						theMaid.motionZ = (dZ / distance) * 1.2D;
 						theMaid.motionY = 0.2D; 
 						theMaid.velocityChanged = true;
 					}
 					
-					// 突刺期间附带 20 Tick 的绝对无敌帧
+					// 突刺期间附带 20 Tick 的无敌帧
 					theMaid.hurtResistantTime = 20; 
 					this.isDashBuff = true; 
 					System.out.println("[LMR-ATTACK-DEBUG] 滞空结束，发射无敌突刺！");
@@ -290,7 +290,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 
 		// =======================================================
-		// 4. 原生寻路模块 (引入狂战士加速突进)
+		// 4. 寻路 (引入狂战士加速)
 		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
@@ -355,7 +355,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						);
 					}
 					
-					// 3. 【重构】女仆中心 2 格检索 (先画一个大圆)
+					// 3. 【重构】女仆中心 2 格检索 (先画一个大饼)
 					java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(
 						EntityLivingBase.class, 
 						theMaid.getEntityBoundingBox().grow(2.0D, 2.0D, 2.0D)
@@ -380,7 +380,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 								
 								// ===================================================
 								// 修复：内圈无视角度，外圈扇形判定
-								// 如果怪物贴脸（距离小于 1.2 格），说明它钻进了女仆的身体盲区（比如史莱姆），无视角度强行波及！
+								// 如果怪物贴脸（距离小于 1.2 格），钻进了女仆的身体盲区无视角度强行波及
 								// 如果距离大于 1.2 格，则必须满足正前方的扇形要求（cosTheta > 0.25D）
 								// ===================================================
 								if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
@@ -423,8 +423,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 		*/
-	} // <--- 这个大括号才是真正的 updateTask 结尾，不漏底了！
-
+	    } // <--- 这个大括号才是真正的 updateTask 结尾，不漏底了！
+    } 
 	@Override
 	public void setEnable(boolean pFlag) {
 		fEnable = pFlag;
