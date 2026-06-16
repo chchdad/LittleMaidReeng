@@ -298,49 +298,31 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						);
 					}
 					
-										// 3. 【重构】女仆中心 2 格检索 (先画一个大圆)
+					// 3. 【重构】女仆中心 2 格检索 (先画一个大圆)
 					java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(
 						EntityLivingBase.class, 
 						theMaid.getEntityBoundingBox().grow(2.0D, 0.5D, 2.0D)
 					);
 					
-					// 获取女仆当前面板总伤害与附魔倍率
 					float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
 					float sweepRatio = net.minecraft.enchantment.EnchantmentHelper.getSweepingDamageRatio(theMaid);
 					float sweepDamage = 1.0F + (sweepRatio * baseAttackDamage);
 					
-					// ===================================================
-					// 📐 【新增】获取女仆当前面朝方向的“单位向量”
-					// ===================================================
 					double yawRad = theMaid.renderYawOffset * Math.PI / 180.0D;
 					double lookX = -Math.sin(yawRad);
 					double lookZ = Math.cos(yawRad);
 
 					for (EntityLivingBase aoeTarget : list) {
-						// 基础过滤：排除自己、主目标、队友，距离 4 格以内
 						if (aoeTarget != theMaid && aoeTarget != entityTarget && !theMaid.isOnSameTeam(aoeTarget) && theMaid.getDistanceSq(aoeTarget) < 16.0D) {
-							
-							// ===================================================
-							// 🎯 【新增】扇形角度判定 (向量点乘算法)
-							// ===================================================
 							double dx = aoeTarget.posX - theMaid.posX;
 							double dz = aoeTarget.posZ - theMaid.posZ;
 							double distanceXY = Math.sqrt(dx * dx + dz * dz);
 							
 							if (distanceXY > 0.0001D) {
-								// 计算目标相对女仆的向量 与 女仆朝向向量 的余弦值 (cos)
 								double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
-								
-								// 核心：cosTheta 取值范围是 [-1, 1]
-								// >  0.0  = 面前 180度 半圆
-								// >  0.25 = 面前大约 150度 宽扇形 (推荐横扫角度)
-								// >  0.5  = 面前 120度 窄扇形
 								if (cosTheta > 0.25D) { 
 									System.out.println("[LMR-ATTACK-DEBUG] 📐 扇形判定通过！波及前方目标: " + aoeTarget.getName());
-									
-									// 造成向后击退
 									aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
-									// 造成横扫真实伤害
 									aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
 								} else {
 									System.out.println("[LMR-ATTACK-DEBUG] 🚫 目标在身后或死角，免疫横扫: " + aoeTarget.getName());
@@ -348,7 +330,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							}
 						}
 					}
-
+				} // <--- 🐛 修复 1：这里加上大括号，让横扫模块独立闭合！
+				
 				// ===================================================
 				
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
@@ -358,8 +341,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					this.pendingBackstep = true; 
 					theMaid.hurtResistantTime = 40; 
 				}
-			}
-		}
+			} // <--- 这里结束 canSlashNow 判定
+		} // <--- 🐛 修复 2：这里加上大括号，闭合 currentDistSq <= attackRangeSq 判定！
 
 		// ====== 封印“自我怀疑”打断机制，防止死锁 ======
 		/* if (theMaid.jobController != null && theMaid.jobController.getActiveModeClass() != null) {
@@ -371,7 +354,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 		*/
-	}
+	} // <--- 这个大括号才是真正的 updateTask 结尾，不漏底了！
 
 	@Override
 	public void setEnable(boolean pFlag) {
@@ -383,3 +366,4 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		return fEnable;
 	}
 }
+
