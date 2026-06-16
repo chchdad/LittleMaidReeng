@@ -101,7 +101,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             }
         }
 
-        if (!validTargets.isEmpty()) {
+            if (!validTargets.isEmpty()) {
             if (this.isEvading) {
                 java.util.Collections.shuffle(validTargets);
                 this.isEvading = false; 
@@ -110,12 +110,22 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 validTargets.sort(Comparator.comparingDouble(p -> p.distanceSq(center)));
             }
             
+            // 保险丝，记录单次循环的复杂路径计算次数
+            int pathfindAttempts = 0; 
+            
             for (BlockPos target : validTargets) {
                 if (maid.getDistanceSqToCenter(target) < 4.5D) {
                     this.destinationBlock = target;
                     maid.getNavigator().tryMoveToXYZ(target.getX() + 0.5D, target.getY() + 1, target.getZ() + 0.5D, this.moveSpeed);
                     return true;
                 }
+                
+                // 如果连续 3 次长距离寻路都是死路，强行掐断计算，保护服务器 TPS！
+                if (pathfindAttempts >= 3) {
+                    System.out.println("[LMR-FARM-DEBUG] 🧠 脑容量过载！寻路保险丝熔断，下个回合再想...");
+                    break; 
+                }
+                pathfindAttempts++; // 每次调用底层 A* 算法，计数器 +1
                 
                 net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
                 if (path != null) {
@@ -337,7 +347,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     }
                     return; 
                 }
-            } // <--- 🐛 就是补在这里！这下整个世界都完美闭环了！
+            } // <---  补在这里！这下整个世界都完美闭环了！
 
             this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
             
