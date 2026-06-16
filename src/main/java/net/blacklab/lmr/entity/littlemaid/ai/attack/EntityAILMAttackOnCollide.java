@@ -301,7 +301,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					// 3. 【重构】女仆中心 2 格检索 (先画一个大圆)
 					java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(
 						EntityLivingBase.class, 
-						theMaid.getEntityBoundingBox().grow(2.0D, 0.5D, 2.0D)
+						theMaid.getEntityBoundingBox().grow(2.0D, 2.0D, 2.0D)
 					);
 					
 					float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
