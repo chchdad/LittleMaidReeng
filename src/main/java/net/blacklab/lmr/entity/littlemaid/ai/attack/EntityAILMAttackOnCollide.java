@@ -224,7 +224,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				}
 			}
 			
-						// 【阶段二：后撤步的滞空期】
+			// 【阶段二：后撤步的滞空期】
 			if (pendingDash) {
 				this.isGuard = true;
 				// 同样防止鬼畜
@@ -259,7 +259,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (pendingDash) {
 					pendingDash = false;
 					
-										// 【专属】卸下防备，准备拔刀
+				    // 卸下防备，准备拔刀
 					this.isGuard = false;
 					// 让女仆替身强行终止举剑动作
 					theMaid.maidAvatar.stopActiveHand(); 
@@ -290,7 +290,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 
 		// =======================================================
-		// 4. 寻路 (引入狂战士加速)
+		// 4. 寻路 (引入加速)
 		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
@@ -306,47 +306,39 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 5. 极速斩击判定 (瞬间转身 + 严格攻速 + 剑刃横扫)
+		// 5. 斩击判定 (瞬转 + 严格攻速 + 剑刃横扫)
 		// =======================================================
 		double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 		attackRangeSq *= attackRangeSq;
 		double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
 		
 		if (currentDistSq <= attackRangeSq) {
-			// 贴脸瞬间，强行把身体和头扭向怪物，根除转身慢导致的发呆！
 			double tdx = entityTarget.posX - theMaid.posX;
 			double tdz = entityTarget.posZ - theMaid.posZ;
 			float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
 			
-			// 强行正骨，瞬间锁定目标
 			theMaid.rotationYaw = targetYaw;
 			theMaid.rotationYawHead = targetYaw;
 			theMaid.renderYawOffset = targetYaw;
 
-			// 恢复原版 110度 角度计算 (防止模型视觉上出现“背刺”)
 			double vdx = -Math.sin(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
 			double vdz = Math.cos(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
 			double ld = (tdx * vdx + tdz * vdz) / (Math.sqrt(tdx * tdx + tdz * tdz) * Math.sqrt(vdx * vdx + vdz * vdz));
 			
-			// 【修复】：取消无敌帧透支判定，严格遵守当前武器的攻速 CD！
 			boolean canSlashNow = (ld >= -0.35D) && theMaid.getSwingStatusDominant().canAttack();
 
 			if (canSlashNow) {
 				System.out.println("[LMR-ATTACK-DEBUG] 转身锁定！贴脸瞬间出刀!");
-				theMaid.attackEntityAsMob(entityTarget); // 发动单体主目标判定
+				theMaid.attackEntityAsMob(entityTarget); 
 				
 				// ===================================================
-				// ====== 新增：剑技横扫模块 (在地面 + 手持剑) ======
+				// ====== 剑技横扫 (在地面 + 手持剑) ======
 				// ===================================================
 				if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
-					System.out.println("[LMR-ATTACK-DEBUG] 触发群攻：剑刃横扫！");
-					
-					// 1. 播放横扫专属音效
 					worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, 
 						net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 
 						theMaid.getSoundCategory(), 1.0F, 1.0F);
 						
-					// 2. 召唤横扫刀光粒子特效
 					if (worldObj instanceof net.minecraft.world.WorldServer) {
 						((net.minecraft.world.WorldServer)worldObj).spawnParticle(
 							net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, 
@@ -355,10 +347,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						);
 					}
 					
-					// 3. 【重构】女仆中心 2 格检索 (先画一个大饼)
 					java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(
 						EntityLivingBase.class, 
-						theMaid.getEntityBoundingBox().grow(2.0D, 2.0D, 2.0D)
+						theMaid.getEntityBoundingBox().grow(2.0D, 1.5D, 2.0D)
 					);
 					
 					float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
@@ -368,63 +359,47 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					double yawRad = theMaid.renderYawOffset * Math.PI / 180.0D;
 					double lookX = -Math.sin(yawRad);
 					double lookZ = Math.cos(yawRad);
+					
+					Entity owner = theMaid.getMaidMasterEntity();
 
 					for (EntityLivingBase aoeTarget : list) {
-						if (aoeTarget != theMaid && aoeTarget != entityTarget && !theMaid.isOnSameTeam(aoeTarget) && theMaid.getDistanceSq(aoeTarget) < 16.0D) {
-							double dx = aoeTarget.posX - theMaid.posX;
-							double dz = aoeTarget.posZ - theMaid.posZ;
-							double distanceXY = Math.sqrt(dx * dx + dz * dz);
+						// 静默，不打日志，不算角度
+						if (aoeTarget == theMaid || aoeTarget == entityTarget || aoeTarget == owner || theMaid.isOnSameTeam(aoeTarget)) {
+							continue;
+						}
+						
+						double distSq = theMaid.getDistanceSq(aoeTarget);
+						if (distSq >= 16.0D) {
+							continue;
+						}
 							
-								if (distanceXY > 0.0001D) {
-								double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
-								
-								// ===================================================
-								// 修复：内圈无视角度，外圈扇形判定
-								// 如果怪物贴脸（距离小于 1.2 格），钻进了女仆的身体盲区无视角度强行波及
-								// 如果距离大于 1.2 格，则必须满足正前方的扇形要求（cosTheta > 0.25D）
-								// ===================================================
-								if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
-									System.out.println("[LMR-ATTACK-DEBUG] 📐 扇形/贴脸判定通过！波及目标: " + aoeTarget.getName());
-									
-									// 造成击退和横扫伤害
-									aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
-									aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
-								} else {
-									System.out.println("[LMR-ATTACK-DEBUG] 🚫 目标在远端死角，免疫横扫: " + aoeTarget.getName());
-								}
+						double dx = aoeTarget.posX - theMaid.posX;
+						double dz = aoeTarget.posZ - theMaid.posZ;
+						double distanceXY = Math.sqrt(dx * dx + dz * dz);
+						
+						if (distanceXY > 0.0001D) {
+							double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
+							if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
+								System.out.println("[LMR-SWEEP-DETAIL]  扇形/贴脸判定通过！处决波及: " + aoeTarget.getName());
+								aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+								aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
 							}
-
 						}
 					}
-				} // <---  修复 1：这里加上大括号，让横扫模块独立闭合！
+				} // <--- 闭合横扫模块
 				
-				// ===================================================
-				
-								// ====== 连招起手判定 ======
+				// ====== 连招起手判定 ======
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
-				// 【修复】：拔掉 onGround 地形限制，只要命中必然能进入第一阶段的“原地蓄力”！
 				if (theMaid.getRNG().nextFloat() < triggerChance) {
 					System.out.println("[LMR-ATTACK-DEBUG] 触发连招！原地霸体蓄力开始...");
-					
-					// 设置第一阶段(原地蓄力)的持续时间
 					this.actionDelayTimer = isBerserk ? 8 : 15; 
 					this.pendingBackstep = true; 
-					
-					// 注意：这里去掉了无敌帧，让她在蓄力期间用格挡减伤硬抗！
 				}
+			} // <--- 闭合 canSlashNow
+		} // <--- 闭合 currentDistSq <= attackRangeSq
 
-		// ====== 封印“自我怀疑”打断机制，防止死锁 ======
-		/* if (theMaid.jobController != null && theMaid.jobController.getActiveModeClass() != null) {
-			if (theMaid.jobController.getActiveModeClass().isChangeTartget(entityTarget)) {
-				System.out.println("[LMR-ATTACK-DEBUG] 被 jobController.isChangeTartget 强制重置目标！");
-				theMaid.setAttackTarget(null);
-				theMaid.setRevengeTarget(null);
-				theMaid.getNavigator().clearPath();
-			}
-		}
-		*/
-	    } // <--- 这个大括号才是真正的 updateTask 结尾，不漏底了！
-    } 
+	} // <--- 这个大括号完美闭合了整个 updateTask 方法！
+
 	@Override
 	public void setEnable(boolean pFlag) {
 		fEnable = pFlag;
@@ -434,5 +409,4 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	public boolean getEnable() {
 		return fEnable;
 	}
-}
-
+} // <--- 闭合整个 Class
