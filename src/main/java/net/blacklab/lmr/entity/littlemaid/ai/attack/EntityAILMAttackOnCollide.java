@@ -191,46 +191,93 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		if (retreatTimer > 0) {
-			retreatTimer--;
-			return; 
-		}
+		// =======================================================
+		// 3. FSM 连招 (三段式：原地蓄力 -> 凌空后撤 -> 无敌突刺)
+		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
+			
+			// 【阶段一：原地霸体蓄力】(倒数期间)
+			if (pendingBackstep) {
+				// 绝对霸体：锁死坐标，清空她身上一切超高的移速惯性，防止滑步！
+				theMaid.motionX = 0.0D;
+				theMaid.motionZ = 0.0D;
+				
+				// 举剑防守与 50% 物理减伤
+				theMaid.isGuard = true;
+				theMaid.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+				theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 5, 1, false, false));
+				
+				// 蓄力紫气特效
+				if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 2 == 0) {
+					((net.minecraft.world.WorldServer)worldObj).spawnParticle(
+						net.minecraft.util.EnumParticleTypes.ENCHANTMENT_TABLE, 
+						theMaid.posX + (theMaid.getRNG().nextFloat()-0.5), 
+						theMaid.posY + 0.5D, 
+						theMaid.posZ + (theMaid.getRNG().nextFloat()-0.5), 
+						2, 0.0D, 0.0D, 0.0D, 0.1D
+					);
+				}
+			}
+			
+			// 【阶段二：后撤步的滞空期】(倒数期间)
+			if (pendingDash) {
+				// 在空中继续保持举剑防守姿态
+				theMaid.isGuard = true;
+			}
+
+			// 倒计时结束，触发对应的动作转换！
 			if (actionDelayTimer <= 0) {
+				// 动作 A：蓄力结束 -> 触发【凌空后撤步】
 				if (pendingBackstep) {
-					pendingBackstep = false;
+					pendingBackstep = false; 
+					
 					double dX = theMaid.posX - entityTarget.posX;
 					double dZ = theMaid.posZ - entityTarget.posZ;
 					double distance = Math.sqrt(dX * dX + dZ * dZ);
+					
 					if (distance >= 0.0001D) {
-						theMaid.motionX = (dX / distance) * 0.6D;
-						theMaid.motionZ = (dZ / distance) * 0.6D;
-						theMaid.motionY = 0.0D; 
+						// 强力后跳，带向上的 Y 轴升力，彻底摆脱地面摩擦力！
+						theMaid.motionX = (dX / distance) * 0.8D;
+						theMaid.motionZ = (dZ / distance) * 0.8D;
+						theMaid.motionY = 0.35D; 
 						theMaid.velocityChanged = true;
 					}
+					
+					// 进入滞空阶段的倒计时
 					pendingDash = true;
-					actionDelayTimer = isBerserk ? 8 : 15; 
-					System.out.println("[LMR-ATTACK-DEBUG] 执行后撤步, 进入蓄力等待...");
+					actionDelayTimer = isBerserk ? 6 : 12; 
+					System.out.println("[LMR-ATTACK-DEBUG] 蓄力完成，执行强力后撤步！");
 				} 
+				// 动作 B：滞空结束 -> 触发【无敌突刺】
 				else if (pendingDash) {
 					pendingDash = false;
+					
+					// 卸下防备，准备拔刀
+					theMaid.isGuard = false;
+					theMaid.resetActiveHand(); 
+					
 					double dX = entityTarget.posX - theMaid.posX;
 					double dZ = entityTarget.posZ - theMaid.posZ;
 					double distance = Math.sqrt(dX * dX + dZ * dZ);
+					
 					if (distance >= 0.0001D) {
-						theMaid.motionX = (dX / distance) * 0.9D; 
-						theMaid.motionZ = (dZ / distance) * 0.9D;
+						// 死亡冲锋
+						theMaid.motionX = (dX / distance) * 1.2D; 
+						theMaid.motionZ = (dZ / distance) * 1.2D;
 						theMaid.motionY = 0.2D; 
 						theMaid.velocityChanged = true;
 					}
+					
+					// 突刺期间附带 20 Tick 的绝对无敌帧
 					theMaid.hurtResistantTime = 20; 
 					this.isDashBuff = true; 
-					System.out.println("[LMR-ATTACK-DEBUG] 蓄力结束，发射 DashBuff 处决冲击波！");
+					System.out.println("[LMR-ATTACK-DEBUG] 滞空结束，发射无敌突刺！");
 				}
 			}
 			return; 
 		}
+
 
 		// =======================================================
 		// 4. 原生寻路模块 (引入狂战士加速突进)
@@ -343,15 +390,18 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				
 				// ===================================================
 				
+								// ====== 连招起手判定 ======
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
-				if (theMaid.onGround && theMaid.getRNG().nextFloat() < triggerChance) {
-					System.out.println("[LMR-ATTACK-DEBUG] 触发连招体系!");
-					this.actionDelayTimer = 8; 
+				// 【修复】：拔掉 onGround 地形限制，只要命中必然能进入第一阶段的“原地蓄力”！
+				if (theMaid.getRNG().nextFloat() < triggerChance) {
+					System.out.println("[LMR-ATTACK-DEBUG] 触发连招！原地霸体蓄力开始...");
+					
+					// 设置第一阶段(原地蓄力)的持续时间
+					this.actionDelayTimer = isBerserk ? 8 : 15; 
 					this.pendingBackstep = true; 
-					theMaid.hurtResistantTime = 40; 
+					
+					// 注意：这里去掉了无敌帧，让她在蓄力期间用格挡减伤硬抗！
 				}
-			} // <--- 这里结束 canSlashNow 判定
-		} // <--- 修复 2：这里加上大括号，闭合 currentDistSq <= attackRangeSq 判定！
 
 		// ====== 封印“自我怀疑”打断机制，防止死锁 ======
 		/* if (theMaid.jobController != null && theMaid.jobController.getActiveModeClass() != null) {
