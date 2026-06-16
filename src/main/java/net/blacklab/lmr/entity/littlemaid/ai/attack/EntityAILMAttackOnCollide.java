@@ -197,16 +197,20 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
 			
-			// 【阶段一：原地霸体蓄力】(倒数期间)
+			// 【阶段一：原地霸体蓄力】
 			if (pendingBackstep) {
-				// 绝对霸体：锁死坐标，清空她身上一切超高的移速惯性，防止滑步！
 				theMaid.motionX = 0.0D;
 				theMaid.motionZ = 0.0D;
+				// theMaid.motionY = 0.0D; // (如果你想要滞空就加上)
 				
-				// 举剑防守与 50% 物理减伤
-				theMaid.isGuard = true;
-				theMaid.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+				this.isGuard = true; 
+				// 优化：只有当她没举剑的时候，才下达举剑指令！防止手臂鬼畜抽搐！
+				if (!theMaid.maidAvatar.isHandActive()) {
+					theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+				}
+				
 				theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 5, 1, false, false));
+
 				
 				// 蓄力紫气特效
 				if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 2 == 0) {
@@ -220,12 +224,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				}
 			}
 			
-			// 【阶段二：后撤步的滞空期】(倒数期间)
+						// 【阶段二：后撤步的滞空期】
 			if (pendingDash) {
-				// 在空中继续保持举剑防守姿态
-				theMaid.isGuard = true;
+				this.isGuard = true;
+				// 同样防止鬼畜
+				if (!theMaid.maidAvatar.isHandActive()) {
+					theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+				}
 			}
-
 			// 倒计时结束，触发对应的动作转换！
 			if (actionDelayTimer <= 0) {
 				// 动作 A：蓄力结束 -> 触发【凌空后撤步】
@@ -253,9 +259,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (pendingDash) {
 					pendingDash = false;
 					
-					// 卸下防备，准备拔刀
-					theMaid.isGuard = false;
-					theMaid.resetActiveHand(); 
+										// 【专属】卸下防备，准备拔刀
+					this.isGuard = false;
+					// 让女仆替身强行终止举剑动作
+					theMaid.maidAvatar.stopActiveHand(); 
+					// 强制女仆播放一次主手挥剑的动画！
+					theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+
 					
 					double dX = entityTarget.posX - theMaid.posX;
 					double dZ = entityTarget.posZ - theMaid.posZ;
