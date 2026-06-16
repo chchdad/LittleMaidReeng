@@ -318,19 +318,28 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							double dz = aoeTarget.posZ - theMaid.posZ;
 							double distanceXY = Math.sqrt(dx * dx + dz * dz);
 							
-							if (distanceXY > 0.0001D) {
+								if (distanceXY > 0.0001D) {
 								double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
-								if (cosTheta > 0.25D) { 
-									System.out.println("[LMR-ATTACK-DEBUG] 📐 扇形判定通过！波及前方目标: " + aoeTarget.getName());
+								
+								// ===================================================
+								// 修复：内圈无视角度，外圈扇形判定
+								// 如果怪物贴脸（距离小于 1.2 格），说明它钻进了女仆的身体盲区（比如史莱姆），无视角度强行波及！
+								// 如果距离大于 1.2 格，则必须满足正前方的扇形要求（cosTheta > 0.25D）
+								// ===================================================
+								if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
+									System.out.println("[LMR-ATTACK-DEBUG] 📐 扇形/贴脸判定通过！波及目标: " + aoeTarget.getName());
+									
+									// 造成击退和横扫伤害
 									aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
 									aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
 								} else {
-									System.out.println("[LMR-ATTACK-DEBUG] 🚫 目标在身后或死角，免疫横扫: " + aoeTarget.getName());
+									System.out.println("[LMR-ATTACK-DEBUG] 🚫 目标在远端死角，免疫横扫: " + aoeTarget.getName());
 								}
 							}
+
 						}
 					}
-				} // <--- 🐛 修复 1：这里加上大括号，让横扫模块独立闭合！
+				} // <---  修复 1：这里加上大括号，让横扫模块独立闭合！
 				
 				// ===================================================
 				
@@ -342,7 +351,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.hurtResistantTime = 40; 
 				}
 			} // <--- 这里结束 canSlashNow 判定
-		} // <--- 🐛 修复 2：这里加上大括号，闭合 currentDistSq <= attackRangeSq 判定！
+		} // <--- 修复 2：这里加上大括号，闭合 currentDistSq <= attackRangeSq 判定！
 
 		// ====== 封印“自我怀疑”打断机制，防止死锁 ======
 		/* if (theMaid.jobController != null && theMaid.jobController.getActiveModeClass() != null) {
