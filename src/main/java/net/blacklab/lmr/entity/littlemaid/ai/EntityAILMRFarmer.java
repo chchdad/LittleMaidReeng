@@ -30,19 +30,17 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     
     private int customScanDelay = 0;
     private boolean actionCompleted = false;
-    
-    // 【动作硬直冷却器】
     private int actionCooldown = 0;
     
-    // 【物理防卡死系统变量】
     private double lastPosX, lastPosY, lastPosZ;
     private int checkStuckTimer = 0;
     private int realStuckCount = 0;
     
-    //  【洗牌与避让系统状态】
-    private boolean isEvading = false;
+    private BlockPos blacklistedTarget = null;
+    private long blacklistEndTime = 0;
+    
+    private boolean isPatrolling = false;
 
-    // ====== 真实移动监测系统 ======
     private double lastOwnerX, lastOwnerY, lastOwnerZ;
     private boolean isOwnerMoving = false;
     private long lastCheckTime = 0;
@@ -82,7 +80,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         BlockPos center = new BlockPos(maid);
         World world = maid.getEntityWorld();
         
-        // 24格搜索半径，兼顾大农场与性能
         int range = 24; 
         
         EntityPlayer owner = null;
@@ -96,14 +93,20 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 for (int z = -range; z <= range; z++) {
                     BlockPos pos = center.add(x, y, z);
                     
-                    // 自由模式彻底无视主人距离限制
                     if (owner != null && !maid.isFreedom() && owner.getDistanceSqToCenter(pos) > 625.0D) {
                         continue; 
                     }
                     
+                    if (this.blacklistedTarget != null && this.blacklistedTarget.equals(pos)) {
+                        if (world.getTotalWorldTime() < this.blacklistEndTime) {
+                            continue; 
+                        } else {
+                            this.blacklistedTarget = null; 
+                        }
+                    }
+                    
                     if (this.shouldMoveTo(world, pos)) {
                         validTargets.add(pos);
-                        // 【算力保险 A单次收集目标超过 30 个强制截断，防 CPU 爆炸
                         if (validTargets.size() >= 30) {
                             limitReached = true;
                             break;
@@ -116,18 +119,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         }
 
         if (!validTargets.isEmpty()) {
-            // 如果刚刚谦让过或卡死过，随机抽选新农田
-            if (this.isEvading) {
-                java.util.Collections.shuffle(validTargets);
-                this.isEvading = false; 
-                System.out.println("[LMR-FARM-DEBUG] 触发洗牌：在收集到的 30 个目标中随机挑选新农田！");
-            } else {
-                validTargets.sort(Comparator.comparingDouble(p -> p.distanceSq(center)));
-            }
+            this.isPatrolling = false; 
+            validTargets.sort(Comparator.comparingDouble(p -> p.distanceSq(center)));
             
-            // 【算力保险 B】：控制 A* 寻路次数
             int pathfindAttempts = 0;
-            
             for (BlockPos target : validTargets) {
                 if (maid.getDistanceSqToCenter(target) < 4.5D) {
                     this.destinationBlock = target;
@@ -135,14 +130,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     return true;
                 }
                 
-                // 每次最多允许 2 次长距离复杂寻路，算不出来就强制休息！
-                if (pathfindAttempts >= 2) {
-                    System.out.println("[LMR-FARM-DEBUG]  寻路算力达到单 Tick 上限，下个回合再算...");
-                    break;
-                }
+                if (pathfindAttempts >= 2) break;
                 pathfindAttempts++;
                 
-                // 【寻路死胡同预判系统】
                 net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
                 if (path != null) {
                     net.minecraft.pathfinding.PathPoint endPoint = path.getFinalPathPoint();
@@ -152,9 +142,37 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                             this.destinationBlock = target;
                             maid.getNavigator().setPath(path, this.moveSpeed);
                             return true;
-                        } else {
-                            System.out.println("[LMR-FARM-DEBUG] 预判死胡同！目标被阻挡，跳过: " + target);
                         }
+                    }
+                }
+            }
+        } else if (maid.isFreedom()) {
+            List<BlockPos> patrolTargets = new ArrayList<>();
+            for (int x = -16; x <= 16; x++) {
+                for (int y = -2; y <= 2; y++) {
+                    for (int z = -16; z <= 16; z++) {
+                        BlockPos pos = center.add(x, y, z);
+                        Block block = world.getBlockState(pos).getBlock();
+                        if (block == Blocks.FARMLAND || block instanceof BlockCrops || block == Blocks.REEDS) {
+                            patrolTargets.add(pos);
+                            if (patrolTargets.size() >= 15) {
+                                x = 17; y = 3; z = 17; 
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (!patrolTargets.isEmpty()) {
+                BlockPos target = patrolTargets.get(maid.getRNG().nextInt(patrolTargets.size()));
+                net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
+                if (path != null) {
+                    net.minecraft.pathfinding.PathPoint endPoint = path.getFinalPathPoint();
+                    if (endPoint != null && target.distanceSq(endPoint.x, endPoint.y, endPoint.z) <= 4.0D) {
+                        this.destinationBlock = target;
+                        this.isPatrolling = true; 
+                        maid.getNavigator().setPath(path, this.moveSpeed * 0.7D); 
+                        return true;
                     }
                 }
             }
@@ -168,7 +186,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             return false;
         }
         
-        // 自由模式下，绝不因为主人的移动而罢工
         if (!maid.isFreedom() && maid.getOwner() instanceof EntityPlayer) {
             EntityPlayer owner = (EntityPlayer) maid.getOwner();
             boolean isMoving = checkOwnerMoving(owner);
@@ -200,7 +217,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         this.lastPosZ = maid.posZ;
         this.checkStuckTimer = 0;
         this.realStuckCount = 0;
-        this.isEvading = false;
+        this.isPatrolling = false; 
         
         EntityPlayer owner = null;
         if (maid.getOwner() instanceof EntityPlayer) {
@@ -229,6 +246,8 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         }
         
         if (this.actionCooldown > 0) return true;
+        
+        if (this.isPatrolling) return true; 
         
         return this.shouldMoveTo(maid.getEntityWorld(), this.destinationBlock);
     }
@@ -261,6 +280,40 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
     @Override
     public void updateTask() {
+        // 【摸鱼打断】
+        // 巡逻或发呆时，每隔 1 秒(20 Tick)用余光进行一次极速扫描（不触发寻路，0负担）
+        if (this.isPatrolling && maid.getEntityWorld().getTotalWorldTime() % 20 == 0) {
+            BlockPos center = new BlockPos(maid);
+            World world = maid.getEntityWorld();
+            boolean foundWork = false;
+            
+            for (int x = -16; x <= 16; x++) {
+                for (int y = -2; y <= 2; y++) {
+                    for (int z = -16; z <= 16; z++) {
+                        BlockPos pos = center.add(x, y, z);
+                        if (this.shouldMoveTo(world, pos)) {
+                            // 确保不是在黑名单里的地块
+                            if (this.blacklistedTarget == null || !this.blacklistedTarget.equals(pos) || world.getTotalWorldTime() >= this.blacklistEndTime) {
+                                foundWork = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (foundWork) break;
+                }
+                if (foundWork) break;
+            }
+            
+            if (foundWork) {
+                System.out.println("[LMR-FARM-DEBUG] 摸鱼时发现成熟作物！立刻终止巡逻！");
+                this.isPatrolling = false;
+                this.actionCompleted = true; // 强制结束巡逻任务
+                maid.getNavigator().clearPath(); // 立刻刹车
+                this.actionCooldown = 0; // 取消发呆状态
+                return; // 退出，下一 Tick 会直接转入正常收割模式
+            }
+        }
+
         if (this.actionCooldown > 0) {
             this.actionCooldown--;
             if (this.actionCooldown == 0) {
@@ -280,8 +333,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
         double myDistToTarget = maid.getDistanceSqToCenter(this.destinationBlock);
 
-        // 只在距离目标大于 3 格 (9.0D) 时才触发礼仪，防止贴脸发呆！
-        if (myDistToTarget > 9.0D) {
+        if (!this.isPatrolling && myDistToTarget > 9.0D) {
             java.util.List<EntityLittleMaid> nearbyMaids = maid.getEntityWorld().getEntitiesWithinAABB(
                 EntityLittleMaid.class, 
                 maid.getEntityBoundingBox().grow(2.0D, 1.0D, 2.0D) 
@@ -290,16 +342,16 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             for (EntityLittleMaid otherMaid : nearbyMaids) {
                 if (otherMaid != maid && otherMaid.getMaidModeString().equals(EntityMode_Farmer.mmode_Farmer)) {
                     double otherDistToTarget = otherMaid.getDistanceSqToCenter(this.destinationBlock);
-                    
                     boolean shouldYield = (otherDistToTarget < myDistToTarget) || 
                                           (Math.abs(otherDistToTarget - myDistToTarget) < 0.1D && otherMaid.getEntityId() < maid.getEntityId());
 
                     if (shouldYield) {
-                        // ⏱️ 极短的错位停顿 (3~5 Tick)，并且下次直接洗牌目标，告别死锁！
+                        this.blacklistedTarget = this.destinationBlock;
+                        this.blacklistEndTime = maid.getEntityWorld().getTotalWorldTime() + 60;
+                        
                         this.actionCompleted = true; 
                         maid.getNavigator().clearPath(); 
-                        this.actionCooldown = 3 + maid.getRNG().nextInt(3); 
-                        this.isEvading = true; 
+                        this.actionCooldown = 5; 
                         return; 
                     }
                 }
@@ -313,10 +365,14 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         }
         
         if (myDistToTarget < 4.5D) {
-            executeAction();
-            maid.getNavigator().clearPath();
-            this.actionCooldown = 12;
-            
+            if (this.isPatrolling) {
+                maid.getNavigator().clearPath();
+                this.actionCooldown = 40 + maid.getRNG().nextInt(40);
+            } else {
+                executeAction();
+                maid.getNavigator().clearPath();
+                this.actionCooldown = 12;
+            }
         } else {
             this.checkStuckTimer++;
             if (this.checkStuckTimer >= 20) { 
@@ -335,7 +391,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 this.lastPosZ = maid.posZ;
                 this.checkStuckTimer = 0;
                 
-                // 【双重环境甄别防卡死系统】
                 if (this.realStuckCount >= 3) {
                     boolean hasFence = false;
                     for (int fx = -1; fx <= 1; fx++) {
@@ -352,19 +407,23 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     }
 
                     if (hasFence) {
-                        // 【隔离区退避】旁边有栅栏，不强行长臂猿，果断换地块
-                        System.out.println("[LMR-FARM-DEBUG] 确认被栅栏卡死！放弃隔空收割，准备洗牌远遁！");
-                        this.actionCompleted = true; 
+                        if (!this.isPatrolling) {
+                            this.blacklistedTarget = this.destinationBlock;
+                            this.blacklistEndTime = maid.getEntityWorld().getTotalWorldTime() + 200;
+                            this.actionCompleted = true; 
+                            this.customScanDelay = 20; 
+                        }
                         maid.getNavigator().clearPath();
-                        this.customScanDelay = 40; 
                         this.actionCooldown = 5;
-                        this.isEvading = true; 
                     } else {
-                        // 【小土坡/普通卡死】没栅栏，保留长臂猿能力，强行隔空挥锄头
-                        System.out.println("[LMR-FARM-DEBUG] 普通地形卡死，启动长臂猿模式强行收割！");
-                        executeAction(); 
-                        maid.getNavigator().clearPath();
-                        this.actionCooldown = 12;
+                        if (this.isPatrolling) {
+                            maid.getNavigator().clearPath();
+                            this.actionCooldown = 20;
+                        } else {
+                            executeAction(); 
+                            maid.getNavigator().clearPath();
+                            this.actionCooldown = 12;
+                        }
                     }
                     return; 
                 }
