@@ -280,9 +280,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
     @Override
     public void updateTask() {
-        // 【摸鱼打断】
-        // 巡逻或发呆时，每隔 1 秒(20 Tick)用余光进行一次极速扫描（不触发寻路，0负担）
-        if (this.isPatrolling && maid.getEntityWorld().getTotalWorldTime() % 20 == 0) {
+        // 加上女仆自身的 ID 进行取模！
+// 这样女仆 A 会在第 1、21、41 帧扫描，女仆 B 会在 5、25、45 帧扫描，算力被完美平摊到每一秒里！
+if (this.isPatrolling && (maid.getEntityWorld().getTotalWorldTime() + maid.getEntityId()) % 20 == 0) {
             BlockPos center = new BlockPos(maid);
             World world = maid.getEntityWorld();
             boolean foundWork = false;
@@ -290,8 +290,20 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             for (int x = -16; x <= 16; x++) {
                 for (int y = -2; y <= 2; y++) {
                     for (int z = -16; z <= 16; z++) {
-                        BlockPos pos = center.add(x, y, z);
-                        if (this.shouldMoveTo(world, pos)) {
+                                               BlockPos pos = center.add(x, y, z);
+                        IBlockState state = world.getBlockState(pos);
+                        Block block = state.getBlock();
+                        
+                        // 【极速判定】：只看有没有熟小麦和甘蔗！不去判定空耕地和水！瞬间完成！
+                        boolean isHarvestable = (block instanceof BlockCrops && ((BlockCrops) block).isMaxAge(state)) || 
+                                                (block == Blocks.REEDS && world.getBlockState(pos.down()).getBlock() == Blocks.REEDS);
+                                                
+                        if (isHarvestable) {
+                            if (this.blacklistedTarget == null || !this.blacklistedTarget.equals(pos) || world.getTotalWorldTime() >= this.blacklistEndTime) {
+                                foundWork = true;
+                                break;
+                            }
+                        }
                             // 确保不是在黑名单里的地块
                             if (this.blacklistedTarget == null || !this.blacklistedTarget.equals(pos) || world.getTotalWorldTime() >= this.blacklistEndTime) {
                                 foundWork = true;
