@@ -192,27 +192,24 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 3. FSM 连招 (三段式：原地蓄力 -> 凌空后撤 -> 无敌突刺)
+		// 3. FSM 连招 (长蓄力 -> 旧版物理后撤 -> 拔刀突刺)
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
 			
-			// 【阶段一：原地霸体蓄力】
+			// 【阶段一：原地霸体长蓄力】
 			if (pendingBackstep) {
 				theMaid.motionX = 0.0D;
 				theMaid.motionZ = 0.0D;
-				// theMaid.motionY = 0.0D; // (如果滞空就加上)
+				theMaid.motionY = -0.08D; // 施加标准重力，防止站在台阶边缘抽搐
 				
 				this.isGuard = true; 
-				// 只有当她没举剑的时候，才下达举剑指令！防止手臂鬼畜抽搐！
 				if (!theMaid.maidAvatar.isHandActive()) {
 					theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 				}
 				
 				theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 5, 1, false, false));
-
 				
-				// 蓄力紫气特效
 				if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 2 == 0) {
 					((net.minecraft.world.WorldServer)worldObj).spawnParticle(
 						net.minecraft.util.EnumParticleTypes.ENCHANTMENT_TABLE, 
@@ -224,65 +221,55 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				}
 			}
 			
-			// 【阶段二：后撤步的滞空期】
+			// 【阶段二：后撤步滑行期】
 			if (pendingDash) {
+				// 注意：这里绝对不能锁死 motion 让她保留后退的推力，自然往后滑行！
 				this.isGuard = true;
-				// 同样防止鬼畜
 				if (!theMaid.maidAvatar.isHandActive()) {
 					theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 				}
 			}
-			// 倒计时结束，触发对应的动作转换！
+			
+			// 倒计时结束，触发动作！
 			if (actionDelayTimer <= 0) {
-				// 动作 A：蓄力结束 -> 触发【凌空后撤步】
 				if (pendingBackstep) {
 					pendingBackstep = false; 
 					
+					// 平滑向后推！
 					double dX = theMaid.posX - entityTarget.posX;
 					double dZ = theMaid.posZ - entityTarget.posZ;
 					double distance = Math.sqrt(dX * dX + dZ * dZ);
 					
 					if (distance >= 0.0001D) {
-						// 强力后跳，带向上的 Y 轴升力，彻底摆脱地面摩擦力！
-						theMaid.motionX = (dX / distance) * 0.8D;
-						theMaid.motionZ = (dZ / distance) * 0.8D;
-						theMaid.motionY = 0.35D; 
+						theMaid.motionX = (dX / distance) * 0.6D;
+						theMaid.motionZ = (dZ / distance) * 0.6D;
+						theMaid.motionY = 0.0D; // 保持贴地滑行
 						theMaid.velocityChanged = true;
 					}
 					
-					// 进入滞空阶段的倒计时
 					pendingDash = true;
-					actionDelayTimer = isBerserk ? 6 : 12; 
-					System.out.println("[LMR-ATTACK-DEBUG] 蓄力完成，执行强力后撤步！");
+					actionDelayTimer = 10; // 后撤滑行 0.5 秒 (10 Tick) 后立刻突刺
 				} 
-				// 动作 B：滞空结束 -> 触发【无敌突刺】
 				else if (pendingDash) {
 					pendingDash = false;
 					
-				    // 卸下防备，准备拔刀
 					this.isGuard = false;
-					// 让女仆替身强行终止举剑动作
 					theMaid.maidAvatar.stopActiveHand(); 
-					// 强制女仆播放一次主手挥剑的动画！
 					theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
-
 					
 					double dX = entityTarget.posX - theMaid.posX;
 					double dZ = entityTarget.posZ - theMaid.posZ;
 					double distance = Math.sqrt(dX * dX + dZ * dZ);
 					
 					if (distance >= 0.0001D) {
-						// 冲锋
 						theMaid.motionX = (dX / distance) * 1.2D; 
 						theMaid.motionZ = (dZ / distance) * 1.2D;
 						theMaid.motionY = 0.2D; 
 						theMaid.velocityChanged = true;
 					}
 					
-					// 突刺期间附带 20 Tick 的无敌帧
 					theMaid.hurtResistantTime = 20; 
 					this.isDashBuff = true; 
-					System.out.println("[LMR-ATTACK-DEBUG] 滞空结束，发射无敌突刺！");
 				}
 			}
 			return; 
@@ -391,8 +378,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				// ====== 连招起手判定 ======
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
 				if (theMaid.getRNG().nextFloat() < triggerChance) {
-					System.out.println("[LMR-ATTACK-DEBUG] 触发连招！原地霸体蓄力开始...");
-					this.actionDelayTimer = isBerserk ? 8 : 15; 
+					System.out.println("[LMR-ATTACK-DEBUG] 原地长蓄力开始...");
+					
+					// 蓄力时间延长25 tick，狂暴20 tick
+					this.actionDelayTimer = isBerserk ? 20 : 25; 
 					this.pendingBackstep = true; 
 				}
 			} // <--- 闭合 canSlashNow
