@@ -298,30 +298,57 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						);
 					}
 					
-					// 3. 范围伤害判定 (目标周围 1 格范围内的所有活物)
+										// 3. 【重构】女仆中心 2 格检索 (先画一个大圆)
 					java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(
 						EntityLivingBase.class, 
-						entityTarget.getEntityBoundingBox().grow(1.0D, 0.25D, 1.0D)
+						theMaid.getEntityBoundingBox().grow(2.0D, 0.5D, 2.0D)
 					);
 					
-					// 【核心重构】：完美还原原版横扫伤害公式！
-					// 获取女仆当前面板总伤害 (包含武器和锋利附魔)
+					// 获取女仆当前面板总伤害与附魔倍率
 					float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
-					// 获取手中武器的“横扫之刃”附魔倍率 (没有附魔就是 0，满级是 0.75)
 					float sweepRatio = net.minecraft.enchantment.EnchantmentHelper.getSweepingDamageRatio(theMaid);
-					// 最终横扫真伤 = 基础 1 点 + (主伤害 × 附魔倍率)
 					float sweepDamage = 1.0F + (sweepRatio * baseAttackDamage);
 					
+					// ===================================================
+					// 📐 【新增】获取女仆当前面朝方向的“单位向量”
+					// ===================================================
+					double yawRad = theMaid.renderYawOffset * Math.PI / 180.0D;
+					double lookX = -Math.sin(yawRad);
+					double lookZ = Math.cos(yawRad);
+
 					for (EntityLivingBase aoeTarget : list) {
-						// 排除：自己、主目标、同一小队的队友，且距离必须小于 3 格 (9.0D)
-						if (aoeTarget != theMaid && aoeTarget != entityTarget && !theMaid.isOnSameTeam(aoeTarget) && theMaid.getDistanceSq(aoeTarget) < 9.0D) {
-							// 造成范围击退
-							aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
-							// 造成动态计算的真实横扫伤害！
-							aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
+						// 基础过滤：排除自己、主目标、队友，距离 4 格以内
+						if (aoeTarget != theMaid && aoeTarget != entityTarget && !theMaid.isOnSameTeam(aoeTarget) && theMaid.getDistanceSq(aoeTarget) < 16.0D) {
+							
+							// ===================================================
+							// 🎯 【新增】扇形角度判定 (向量点乘算法)
+							// ===================================================
+							double dx = aoeTarget.posX - theMaid.posX;
+							double dz = aoeTarget.posZ - theMaid.posZ;
+							double distanceXY = Math.sqrt(dx * dx + dz * dz);
+							
+							if (distanceXY > 0.0001D) {
+								// 计算目标相对女仆的向量 与 女仆朝向向量 的余弦值 (cos)
+								double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
+								
+								// 核心：cosTheta 取值范围是 [-1, 1]
+								// >  0.0  = 面前 180度 半圆
+								// >  0.25 = 面前大约 150度 宽扇形 (推荐横扫角度)
+								// >  0.5  = 面前 120度 窄扇形
+								if (cosTheta > 0.25D) { 
+									System.out.println("[LMR-ATTACK-DEBUG] 📐 扇形判定通过！波及前方目标: " + aoeTarget.getName());
+									
+									// 造成向后击退
+									aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+									// 造成横扫真实伤害
+									aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
+								} else {
+									System.out.println("[LMR-ATTACK-DEBUG] 🚫 目标在身后或死角，免疫横扫: " + aoeTarget.getName());
+								}
+							}
 						}
 					}
-				}
+
 				// ===================================================
 				
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
