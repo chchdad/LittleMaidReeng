@@ -31,14 +31,18 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private int customScanDelay = 0;
     private boolean actionCompleted = false;
     
+    // 【动作硬直冷却器】
     private int actionCooldown = 0;
     
+    // 【物理防卡死系统变量】
     private double lastPosX, lastPosY, lastPosZ;
     private int checkStuckTimer = 0;
     private int realStuckCount = 0;
     
+    //  【洗牌与避让系统状态】
     private boolean isEvading = false;
 
+    // ====== 真实移动监测系统 ======
     private double lastOwnerX, lastOwnerY, lastOwnerZ;
     private boolean isOwnerMoving = false;
     private long lastCheckTime = 0;
@@ -78,40 +82,51 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         BlockPos center = new BlockPos(maid);
         World world = maid.getEntityWorld();
         
-        int range = 32;
+        // 24格搜索半径，兼顾大农场与性能
+        int range = 24; 
         
         EntityPlayer owner = null;
         if (maid.getOwner() instanceof EntityPlayer) {
             owner = (EntityPlayer) maid.getOwner();
         }
 
+        boolean limitReached = false;
         for (int x = -range; x <= range; x++) {
             for (int y = -2; y <= 2; y++) {
                 for (int z = -range; z <= range; z++) {
                     BlockPos pos = center.add(x, y, z);
                     
+                    // 自由模式彻底无视主人距离限制
                     if (owner != null && !maid.isFreedom() && owner.getDistanceSqToCenter(pos) > 625.0D) {
                         continue; 
                     }
                     
                     if (this.shouldMoveTo(world, pos)) {
                         validTargets.add(pos);
+                        // 【算力保险 A单次收集目标超过 30 个强制截断，防 CPU 爆炸
+                        if (validTargets.size() >= 30) {
+                            limitReached = true;
+                            break;
+                        }
                     }
                 }
+                if (limitReached) break;
             }
+            if (limitReached) break;
         }
 
-            if (!validTargets.isEmpty()) {
+        if (!validTargets.isEmpty()) {
+            // 如果刚刚谦让过或卡死过，随机抽选新农田
             if (this.isEvading) {
                 java.util.Collections.shuffle(validTargets);
                 this.isEvading = false; 
-                System.out.println("[LMR-FARM-DEBUG] 触发重新规划：在范围内随机挑选新农田！");
+                System.out.println("[LMR-FARM-DEBUG] 触发洗牌：在收集到的 30 个目标中随机挑选新农田！");
             } else {
                 validTargets.sort(Comparator.comparingDouble(p -> p.distanceSq(center)));
             }
             
-            // 保险丝，记录单次循环的复杂路径计算次数
-            int pathfindAttempts = 0; 
+            // 【算力保险 B】：控制 A* 寻路次数
+            int pathfindAttempts = 0;
             
             for (BlockPos target : validTargets) {
                 if (maid.getDistanceSqToCenter(target) < 4.5D) {
@@ -120,13 +135,14 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     return true;
                 }
                 
-                // 如果连续 3 次长距离寻路都是死路，强行掐断计算，保护服务器 TPS！
-                if (pathfindAttempts >= 3) {
-                    System.out.println("[LMR-FARM-DEBUG] 🧠 脑容量过载！寻路保险丝熔断，下个回合再想...");
-                    break; 
+                // 每次最多允许 2 次长距离复杂寻路，算不出来就强制休息！
+                if (pathfindAttempts >= 2) {
+                    System.out.println("[LMR-FARM-DEBUG]  寻路算力达到单 Tick 上限，下个回合再算...");
+                    break;
                 }
-                pathfindAttempts++; // 每次调用底层 A* 算法，计数器 +1
+                pathfindAttempts++;
                 
+                // 【寻路死胡同预判系统】
                 net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
                 if (path != null) {
                     net.minecraft.pathfinding.PathPoint endPoint = path.getFinalPathPoint();
@@ -137,7 +153,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                             maid.getNavigator().setPath(path, this.moveSpeed);
                             return true;
                         } else {
-                            System.out.println("[LMR-FARM-DEBUG] 预判到死胡同！目标 " + target + " 处于隔离区，直接跳过！");
+                            System.out.println("[LMR-FARM-DEBUG] 预判死胡同！目标被阻挡，跳过: " + target);
                         }
                     }
                 }
@@ -152,6 +168,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             return false;
         }
         
+        // 自由模式下，绝不因为主人的移动而罢工
         if (!maid.isFreedom() && maid.getOwner() instanceof EntityPlayer) {
             EntityPlayer owner = (EntityPlayer) maid.getOwner();
             boolean isMoving = checkOwnerMoving(owner);
@@ -260,40 +277,42 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             }
             return; 
         }
-        
-        java.util.List<EntityLittleMaid> nearbyMaids = maid.getEntityWorld().getEntitiesWithinAABB(
-            EntityLittleMaid.class, 
-            maid.getEntityBoundingBox().grow(2.0D, 1.0D, 2.0D) 
-        );
-        
-        for (EntityLittleMaid otherMaid : nearbyMaids) {
-            if (otherMaid != maid && otherMaid.getMaidModeString().equals(EntityMode_Farmer.mmode_Farmer)) {
-                double myDistToTarget = maid.getDistanceSqToCenter(this.destinationBlock);
-                double otherDistToTarget = otherMaid.getDistanceSqToCenter(this.destinationBlock);
-                
-                boolean shouldYield = (otherDistToTarget < myDistToTarget) || 
-                                      (Math.abs(otherDistToTarget - myDistToTarget) < 0.1D && otherMaid.getEntityId() < maid.getEntityId());
 
-                if (shouldYield) {
-                    System.out.println("[LMR-FARM-DEBUG] 撞见同事！主动放弃当前目标...");
-                    this.actionCompleted = true; 
-                    maid.getNavigator().clearPath(); 
-                    this.actionCooldown = 15 + maid.getRNG().nextInt(10); 
-                    this.isEvading = true; 
-                    return; 
+        double myDistToTarget = maid.getDistanceSqToCenter(this.destinationBlock);
+
+        // 只在距离目标大于 3 格 (9.0D) 时才触发礼仪，防止贴脸发呆！
+        if (myDistToTarget > 9.0D) {
+            java.util.List<EntityLittleMaid> nearbyMaids = maid.getEntityWorld().getEntitiesWithinAABB(
+                EntityLittleMaid.class, 
+                maid.getEntityBoundingBox().grow(2.0D, 1.0D, 2.0D) 
+            );
+            
+            for (EntityLittleMaid otherMaid : nearbyMaids) {
+                if (otherMaid != maid && otherMaid.getMaidModeString().equals(EntityMode_Farmer.mmode_Farmer)) {
+                    double otherDistToTarget = otherMaid.getDistanceSqToCenter(this.destinationBlock);
+                    
+                    boolean shouldYield = (otherDistToTarget < myDistToTarget) || 
+                                          (Math.abs(otherDistToTarget - myDistToTarget) < 0.1D && otherMaid.getEntityId() < maid.getEntityId());
+
+                    if (shouldYield) {
+                        // ⏱️ 极短的错位停顿 (3~5 Tick)，并且下次直接洗牌目标，告别死锁！
+                        this.actionCompleted = true; 
+                        maid.getNavigator().clearPath(); 
+                        this.actionCooldown = 3 + maid.getRNG().nextInt(3); 
+                        this.isEvading = true; 
+                        return; 
+                    }
                 }
             }
         }
 
-        double dist = maid.getDistanceSqToCenter(this.destinationBlock);
-
-        if (dist > 16.0D) { 
+        if (myDistToTarget > 16.0D) { 
             maid.getNavigator().setSpeed(1.2D); 
         } else {            
             maid.getNavigator().setSpeed(1.0D); 
         }
         
-        if (dist < 4.5D) {
+        if (myDistToTarget < 4.5D) {
             executeAction();
             maid.getNavigator().clearPath();
             this.actionCooldown = 12;
@@ -316,6 +335,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 this.lastPosZ = maid.posZ;
                 this.checkStuckTimer = 0;
                 
+                // 【双重环境甄别防卡死系统】
                 if (this.realStuckCount >= 3) {
                     boolean hasFence = false;
                     for (int fx = -1; fx <= 1; fx++) {
@@ -332,22 +352,23 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     }
 
                     if (hasFence) {
-                        System.out.println("[LMR-FARM-DEBUG] 确认被栅栏卡死！放弃隔空收割，打乱阵型远遁！");
+                        // 【隔离区退避】旁边有栅栏，不强行长臂猿，果断换地块
+                        System.out.println("[LMR-FARM-DEBUG] 确认被栅栏卡死！放弃隔空收割，准备洗牌远遁！");
                         this.actionCompleted = true; 
                         maid.getNavigator().clearPath();
-                        
                         this.customScanDelay = 40; 
                         this.actionCooldown = 5;
                         this.isEvading = true; 
                     } else {
-                        System.out.println("[LMR-FARM-DEBUG] 普通地形卡死，启动长臂猿模式隔空收割！");
+                        // 【小土坡/普通卡死】没栅栏，保留长臂猿能力，强行隔空挥锄头
+                        System.out.println("[LMR-FARM-DEBUG] 普通地形卡死，启动长臂猿模式强行收割！");
                         executeAction(); 
                         maid.getNavigator().clearPath();
                         this.actionCooldown = 12;
                     }
                     return; 
                 }
-            } // <---  补在这里！这下整个世界都完美闭环了！
+            }
 
             this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
             
