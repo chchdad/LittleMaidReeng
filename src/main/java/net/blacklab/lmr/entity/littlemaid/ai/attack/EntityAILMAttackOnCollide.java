@@ -32,7 +32,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected boolean isDashBuff = false; 
 	public boolean isGuard;
 
-	// 狂暴距离补偿核心变量
+	// 🌟 狂暴距离补偿核心变量
 	protected int rescueBerserkTimer = 0;      // 狂暴持续时间（最高200）
 	protected int rescueBerserkCooldown = 0;   // 狂暴冷却时间（最高200）
 
@@ -45,6 +45,21 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		isReroute = par3;
 		isGuard = false;
 		setMutexBits(3);
+	}
+
+	//  绕过 protected 锁修改红温数值
+	private void setMaidOverDrive(int time) {
+		try {
+			java.lang.reflect.Field field = net.blacklab.lmr.entity.littlemaid.EntityLittleMaid.class.getDeclaredField("maidOverDriveTime");
+			field.setAccessible(true); // 无视权限锁，开放访问
+			Object overDriveObj = field.get(this.theMaid);
+			if (overDriveObj != null) {
+				java.lang.reflect.Method method = overDriveObj.getClass().getMethod("setValue", int.class);
+				method.invoke(overDriveObj, time);
+			}
+		} catch (Exception e) {
+			System.out.println("[LMR-ATTACK-DEBUG] 反射修改红温状态失败: " + e.getMessage());
+		}
 	}
 
 	@Override
@@ -122,11 +137,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		pendingDash = false;
 		isDashBuff = false;
 
-		// 一旦目标丢失或死亡，立刻结束狂暴并进入 10 秒 CD
+		//  一旦目标丢失或死亡，立刻结束狂暴并进入 10 秒 CD
 		if (rescueBerserkTimer > 0) {
 			rescueBerserkTimer = 0;
 			rescueBerserkCooldown = 200;
-			theMaid.maidOverDriveTime.setValue(0); // 强制关闭底层红温渲染
+			this.setMaidOverDrive(0); // 利用反射强行关闭底层红温渲染
 		}
 	}
 
@@ -142,7 +157,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		// 1.  红温超视距救主狂暴系统 (距离补偿 + 10秒倒计时)
+		// 1.  红温超视距救主狂暴(距离补偿 + 10秒倒计时)
 		// =======================================================
 		if (rescueBerserkCooldown > 0) {
 			rescueBerserkCooldown--;
@@ -153,7 +168,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			
 			if (rescueBerserkTimer <= 0) {
 				rescueBerserkCooldown = 200; // 狂暴时间结束，立刻进入10秒CD
-				theMaid.maidOverDriveTime.setValue(0); // 强制关闭底层红温渲染
+				this.setMaidOverDrive(0); // 利用反射强行关闭底层红温渲染
 			}
 		}
 
@@ -164,7 +179,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			if (rawOwner instanceof EntityLivingBase) {
 				EntityLivingBase owner = (EntityLivingBase) rawOwner;
 				
-				// 只有真正打到主人（被登记为RevengeTarget）才算数
+				//  严格把关：只有真正打到主人（被登记为RevengeTarget）才算数
 				boolean isAttackingOwner = (owner.getRevengeTarget() == entityTarget);
 				
 				if (isAttackingOwner) {
@@ -172,8 +187,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					// 距离补偿触发点：距离大于10格 (10 * 10 = 100)
 					if (distSq >= 100.0D) { 
 						rescueBerserkTimer = 200; // 持续 10 秒
-						// 激活底层真·红温开关！接管全部真实加成与身体发红渲染！
-						theMaid.maidOverDriveTime.setValue(200); 
+						//  激活底层真·红温开关！接管全部真实加成与身体发红渲染！
+						this.setMaidOverDrive(200); 
 						// 狂暴语音
 						theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true); 
 					}
@@ -212,10 +227,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D, 0.8D, 0.8D).intersects(entityTarget.getEntityBoundingBox())) {
 					theMaid.attackEntityAsMob(entityTarget);
 					
-					// 狂暴救驾成功判定：冲刺命中目标，衰减至5秒
+					//  冲刺命中目标，衰减至5秒
 					if (rescueBerserkTimer > 100) {
 						rescueBerserkTimer = 100;
-						theMaid.maidOverDriveTime.setValue(100); // 同步削减底层红温剩余时间
+						this.setMaidOverDrive(100); // 利用反射同步削减底层红温剩余时间
 					}
 
 					this.isDashBuff = false;
@@ -247,7 +262,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 3. FSM 连招 (长蓄力 -> 旧版物理后撤 -> 拔刀突刺)
+		// 3. FSM 连招 (长蓄力 -> 物理后撤 -> 拔刀突刺)
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
@@ -327,7 +342,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 
 		// =======================================================
-		// 4. 寻路 (狂暴的高额移速系统)
+		// 4. 寻路 ( 狂暴的高额移速)
 		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
@@ -374,10 +389,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			if (canSlashNow) {
 				theMaid.attackEntityAsMob(entityTarget); 
 				
-				//  狂暴救驾成功判定
+				// 狂暴救驾成功判定
 				if (rescueBerserkTimer > 100) {
 					rescueBerserkTimer = 100;
-					theMaid.maidOverDriveTime.setValue(100); // 同步削减底层红温剩余时间
+					this.setMaidOverDrive(100); // 利用反射同步削减底层红温剩余时间
 				}
 				
 				if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
