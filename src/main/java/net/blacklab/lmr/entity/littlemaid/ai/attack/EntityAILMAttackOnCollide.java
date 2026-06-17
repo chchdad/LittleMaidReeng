@@ -32,7 +32,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected boolean isDashBuff = false; 
 	public boolean isGuard;
 
-	// 🌟 狂暴距离补偿核心变量
+	// 狂暴距离补偿核心变量
 	protected int rescueBerserkTimer = 0;      // 狂暴持续时间（最高200）
 	protected int rescueBerserkCooldown = 0;   // 狂暴冷却时间（最高200）
 
@@ -127,7 +127,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		pendingDash = false;
 		isDashBuff = false;
 
-		// 🌟 狂暴脱战惩罚：一旦目标丢失或死亡，立刻结束狂暴并进入 10 秒 CD
+		// 一旦目标丢失或死亡，立刻结束狂暴并进入 10 秒 CD
 		if (rescueBerserkTimer > 0) {
 			rescueBerserkTimer = 0;
 			rescueBerserkCooldown = 200;
@@ -147,7 +147,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		// 1.距离补偿 + 10秒倒计时
+		// 1. 超视距救主狂暴系统 (距离补偿 + 10秒倒计时)
 		// =======================================================
 		if (rescueBerserkCooldown > 0) {
 			rescueBerserkCooldown--;
@@ -172,11 +172,18 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		// 检测是否需要触发狂暴
 		if (rescueBerserkCooldown <= 0 && rescueBerserkTimer <= 0) {
-			Entity owner = theMaid.getMaidMasterEntity();
-			if (owner != null) {
+			Entity rawOwner = theMaid.getMaidMasterEntity();
+			
+			//  确保主人是活物 (EntityLivingBase) 才能取 RevengeTarget
+			if (rawOwner instanceof EntityLivingBase) {
+				EntityLivingBase owner = (EntityLivingBase) rawOwner;
+				
+				//  确保目标是具备 AI 的怪物 (EntityLiving) 才能取 AttackTarget
+				boolean targetIsAttackingOwner = (entityTarget instanceof net.minecraft.entity.EntityLiving) && 
+												 (((net.minecraft.entity.EntityLiving)entityTarget).getAttackTarget() == owner);
+												 
 				// 判定：现在的目标是不是正在打主人的凶手
-				boolean isAttackingOwner = (owner.getRevengeTarget() == entityTarget) || 
-										   (entityTarget instanceof EntityLivingBase && ((EntityLivingBase)entityTarget).getAttackTarget() == owner);
+				boolean isAttackingOwner = (owner.getRevengeTarget() == entityTarget) || targetIsAttackingOwner;
 				
 				if (isAttackingOwner) {
 					double distSq = theMaid.getDistanceSq(entityTarget);
@@ -199,7 +206,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		
 		
 		// =======================================================
-		// 2. Dash 追击系统
+		// 2. Dash 追击
 		// =======================================================
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
@@ -223,7 +230,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					System.out.println("[LMR-ATTACK-DEBUG] 触发吸附处决!");
 					theMaid.attackEntityAsMob(entityTarget);
 					
-					//  如果是在狂暴期间砍到目标，狂暴时间立刻砍半衰减为5秒！
+					// 如果是在狂暴期间砍到目标，狂暴时间立刻砍半衰减为5秒！
 					if (rescueBerserkTimer > 100) {
 						System.out.println("[LMR-ATTACK-DEBUG] 狂暴状态下成功砍中目标，狂暴时间衰减至5秒！");
 						rescueBerserkTimer = 100;
@@ -258,7 +265,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 3. FSM 连招 (长蓄力 -> 旧版物理后撤 -> 拔刀突刺)
+		// 3. FSM 连招 (长蓄力 -> 物理后撤 -> 拔刀突刺)
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
@@ -338,7 +345,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 
 		// =======================================================
-		// 4. 寻路 (🌟 融合狂暴的高额移速系统)
+		// 4. 寻路 ( 狂暴的高额移速)
 		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
@@ -386,7 +393,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				System.out.println("[LMR-ATTACK-DEBUG] 转身锁定！贴脸瞬间出刀!");
 				theMaid.attackEntityAsMob(entityTarget); 
 				
-				//  非冲刺贴脸时的平砍触发
+				// 狂暴救驾成功判定
 				if (rescueBerserkTimer > 100) {
 					System.out.println("[LMR-ATTACK-DEBUG] 狂暴状态下成功砍中目标，狂暴时间衰减至5秒！");
 					rescueBerserkTimer = 100;
