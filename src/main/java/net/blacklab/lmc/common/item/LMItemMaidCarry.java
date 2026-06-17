@@ -31,13 +31,30 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
+import net.minecraftforge.fml.common.registry.EntityEntry;
+import net.minecraftforge.fml.common.registry.EntityEntryBuilder;
+import net.minecraftforge.event.RegistryEvent;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 
 /**
  * Mob持ち運び用アイテム
  * @author computer
  *
  */
+@EventBusSubscriber 
 public class LMItemMaidCarry extends Item {
+
+	@SubscribeEvent
+	public static void registerEntities(RegistryEvent.Register<EntityEntry> event) {
+		event.getRegistry().register(EntityEntryBuilder.create()
+			.entity(LMItemMaidCarry.LMEntityItemMaidSafe.class)
+			.id(new ResourceLocation("lmr", "maid_carry_safe_entity"), 114515)
+			.name("maid_carry_safe_entity")
+			.tracker(64, 20, true)
+			.build());
+	}
 
 	/**
 	 * コンストラクタ
@@ -198,14 +215,18 @@ public class LMItemMaidCarry extends Item {
 	}
 
 	/**
-	 * 内置紧急保命逃生逻辑的自定义物品实体类
+	 * 内置保命逻辑的自定义物品实体类
 	 */
 	public static class LMEntityItemMaidSafe extends EntityItem {
+		
 		public LMEntityItemMaidSafe(World worldIn, double x, double y, double z, ItemStack stack) {
 			super(worldIn, x, y, z, stack);
 		}
 		
-		// 必须确认里面真的装了女仆数据，而不是一个改过名的空物品
+		public LMEntityItemMaidSafe(World worldIn) {
+			super(worldIn);
+		}
+		
 		private boolean isActualMaidContainer() {
 			ItemStack stack = this.getItem();
 			return !stack.isEmpty() && stack.hasTagCompound() && stack.getTagCompound().hasKey("maid_owner");
@@ -214,7 +235,6 @@ public class LMItemMaidCarry extends Item {
 		@Override
 		public boolean attackEntityFrom(DamageSource source, float amount) {
 			if (!this.world.isRemote && !this.isDead && isActualMaidContainer()) {
-				// 拦截火烧、熔岩、爆炸、仙人掌或掉落虚空等致命破坏来源
 				if (source.isFireDamage() || source.isExplosion() || source == DamageSource.CACTUS || source == DamageSource.OUT_OF_WORLD) {
 					triggerEmergencyEscape(this);
 					this.setDead();
@@ -228,7 +248,6 @@ public class LMItemMaidCarry extends Item {
 		public void onUpdate() {
 			super.onUpdate();
 			if (!this.world.isRemote && !this.isDead && isActualMaidContainer()) {
-				// 环境强制双重保底监测
 				if (this.isInLava() || this.isBurning() || this.posY < -10.0D) {
 					triggerEmergencyEscape(this);
 					this.setDead();
@@ -242,50 +261,47 @@ public class LMItemMaidCarry extends Item {
 			if (stack.isEmpty() || !stack.hasTagCompound()) return;
 
 			double x = entityItem.posX;
-			double y = Math.max(1.0D, entityItem.posY); // 防止虚空死循环
+			double y = Math.max(1.0D, entityItem.posY);
 			double z = entityItem.posZ;
 
-			// 1. 释放女仆数据包
+			// 1. 释放女仆
 			LittleMaidHelper.spawnEntityFromItemStack(stack, world, x, y, z);
 
-			// 2. 抓取释放出的女仆
+			// 2. 获取实体
 			List<EntityLittleMaid> maids = world.getEntitiesWithinAABB(EntityLittleMaid.class, 
 					new net.minecraft.util.math.AxisAlignedBB(x - 2.0D, y - 2.0D, z - 2.0D, x + 2.0D, y + 2.0D, z + 2.0D));
 			
 			if (!maids.isEmpty()) {
 				EntityLittleMaid maid = maids.get(0);
 				
-				// 3. 强制进入原地静止等待状态
+				// 3. 切换为原地待命状态
 				maid.setMaidWait(true);
 
-				// 4. 危险环境判定与【同心圆雷达最近安全点搜索算法】
+				// 4. 同心圆雷达最近安全点搜索
 				if (isDangerousLocation(world, new BlockPos(maid))) {
 					BlockPos maidPos = new BlockPos(maid);
 					BlockPos safePos = null;
-					int maxRadius = 128; // 最大极限搜索距离 128 格
+					int maxRadius = 128;
 					
 					searchLoop:
 					for (int r = 1; r <= maxRadius; r++) {
 						for (int cx = -r; cx <= r; cx++) {
 							for (int cz = -r; cz <= r; cz++) {
-								// 仅扫描外围壳，形成由近及远的向外扩散扫描
 								if (Math.abs(cx) != r && Math.abs(cz) != r) continue;
 								
 								for (int cy = -r; cy <= r; cy++) {
 									BlockPos checkPos = maidPos.add(cx, cy, cz);
 									if (checkPos.getY() < 1 || checkPos.getY() >= world.getHeight() - 2) continue;
 									
-									// 判断：区块已加载 + 不是危险位置 + 底部是坚实方块
 									if (world.isBlockLoaded(checkPos) && !isDangerousLocation(world, checkPos) && world.getBlockState(checkPos.down()).isTopSolid()) {
 										safePos = checkPos;
-										break searchLoop; // 找到哪怕最近的一个点，立刻终止计算
+										break searchLoop;
 									}
 								}
 							}
 						}
 					}
 					
-					// 如果找到了最近的安全地带，进行瞬间转移
 					if (safePos != null) {
 						if (maid.attemptTeleport(safePos.getX() + 0.5D, safePos.getY(), safePos.getZ() + 0.5D)) {
 							world.playSound(null, maid.prevPosX, maid.prevPosY, maid.prevPosZ, 
@@ -294,7 +310,7 @@ public class LMItemMaidCarry extends Item {
 					}
 				}
 
-				// 5. 获取主人并发送精确的 GPS 通知 (调用语言文件)
+				// 5. 获取主人并发送精确的 GPS 通知 
 				EntityPlayer player = null;
 				if (maid.getOwner() instanceof EntityPlayer) {
 					player = (EntityPlayer) maid.getOwner();
@@ -303,14 +319,23 @@ public class LMItemMaidCarry extends Item {
 				}
 
 				if (player != null) {
-					// 维度的简易本地化处理
-					String dimName = (maid.dimension == 0) ? "主世界(Overworld)" : (maid.dimension == -1) ? "下界(Nether)" : (maid.dimension == 1) ? "末地(The End)" : ("维度/Dim: " + maid.dimension);
+					// 拔除维度的中文硬编码，复用在遗物里用到的本地化键值
+					Object dimComponent;
+					int dim = maid.dimension;
+					if (dim == 0) {
+					    dimComponent = new net.minecraft.util.text.TextComponentTranslation("message.lmr.dim.0");
+					} else if (dim == -1) {
+					    dimComponent = new net.minecraft.util.text.TextComponentTranslation("message.lmr.dim.-1");
+					} else if (dim == 1) {
+					    dimComponent = new net.minecraft.util.text.TextComponentTranslation("message.lmr.dim.1");
+					} else {
+					    dimComponent = new net.minecraft.util.text.TextComponentTranslation("message.lmr.dim.unknown", dim);
+					}
 					
-					// 使用 TextComponentTranslation 将占位符数据发给客户端，由客户端本地的 .lang 文件进行翻译渲染！
 					player.sendMessage(new net.minecraft.util.text.TextComponentTranslation(
 							"message.lmreengaged.maid_safe_escape", 
 							maid.getName(), 
-							dimName, 
+							dimComponent, 
 							(int)maid.posX, 
 							(int)maid.posY, 
 							(int)maid.posZ
@@ -332,5 +357,5 @@ public class LMItemMaidCarry extends Item {
 			return false;
 		}
 	}
+	
 }
-
