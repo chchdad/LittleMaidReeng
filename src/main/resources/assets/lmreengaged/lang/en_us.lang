@@ -205,5 +205,7 @@ item.maid_stick.details3=Search LittleMaid[OffHand]
 item.maid_stick.details3=Call LittleMaid[OffHand:Sneak]
 message.lmr.souvenir.crush_warning=Shift + Right-click %s more time(s) to destroy the souvenir!
 message.lmr.souvenir.crush_done=The maid's souvenir has been destroyed.
+message.lmreengaged.maid_safe_escape=§e[WARNING] §fThe maid porter of %1$s has been destroyed! Automatically released the maid. Current position: %2$s (%3$s, %4$s, %5$s), and she is currently on standby.
+
 
 
