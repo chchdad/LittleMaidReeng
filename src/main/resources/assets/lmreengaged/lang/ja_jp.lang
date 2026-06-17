@@ -209,5 +209,7 @@ item.maid_stick.details3=メイドさん探知 [オフ]
 item.maid_stick.details4=メイドさん招集 [オフ:スニーク]
 message.lmr.souvenir.crush_warning=あと %s 回 Shift+右クリック するとメイドの土産を破壊します！
 message.lmr.souvenir.crush_done=メイドの土産を破壊しました。
+message.lmreengaged.maid_safe_escape=§e[警告] §f%1$sのメイドポーターが破壊されました！対象のメイドを自動的に解放しました。現在位置: %2$s (%3$s, %4$s, %5$s)、待機状態に入っています。
+
 
 
