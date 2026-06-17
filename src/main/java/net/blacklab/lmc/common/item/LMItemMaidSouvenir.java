@@ -40,16 +40,16 @@ import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 
 @EventBusSubscriber
 public class LMItemMaidSouvenir extends Item {
+	
 	@SubscribeEvent
-public static void registerEntities(RegistryEvent.Register<EntityEntry> event) {
-    // 注册女仆遗物实体，赋予它合法的身份证！
-    event.getRegistry().register(EntityEntryBuilder.create()
-        .entity(LMItemMaidSouvenir.EntityItemMaidSouvenir.class)
-        .id(new ResourceLocation("lmr", "maid_souvenir_entity"), 114514) // 114514是内部ID，确保不和其他实体冲突即可
-        .name("maid_souvenir_entity")
-        .tracker(64, 20, true) // 追踪距离、更新频率、是否发送速度包
-        .build());
-}
+	public static void registerEntities(RegistryEvent.Register<EntityEntry> event) {
+		event.getRegistry().register(EntityEntryBuilder.create()
+			.entity(LMItemMaidSouvenir.EntityItemMaidSouvenir.class)
+			.id(new ResourceLocation("lmr", "maid_souvenir_entity"), 114514)
+			.name("maid_souvenir_entity")
+			.tracker(64, 20, true)
+			.build());
+	}
 
 	public LMItemMaidSouvenir() {
 		this.setMaxStackSize(1);
@@ -106,7 +106,8 @@ public static void registerEntities(RegistryEvent.Register<EntityEntry> event) {
 
 				if (progress > 0 && (currentTime - lastTime > 200)) {
 					progress = 0;
-					player.sendMessage(new net.minecraft.util.text.TextComponentString("§e[系统] 销毁操作超时，进度已重置。"));
+					// 🌟 已修复：销毁超时提示接入多语言文件
+					player.sendMessage(new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.crush_timeout"));
 				}
 
 				if (progress > 0 && (currentTime - lastTime < 10)) {
@@ -153,11 +154,12 @@ public static void registerEntities(RegistryEvent.Register<EntityEntry> event) {
     public void addInformation(ItemStack stack, @Nullable World worldIn, List<String> tooltip, ITooltipFlag flagIn) {
 		tooltip.add(TextFormatting.LIGHT_PURPLE + I18n.format("item.maid_souvenir.info"));
 		if (stack.hasTagCompound()) {
-			if (stack.getTagCompound().hasKey("maid_owner")) {
-				tooltip.add("Owner : " + stack.getTagCompound().getString("maid_owner"));
+			NBTTagCompound nbt = stack.getTagCompound();
+			if (nbt.hasKey("maid_owner")) {
+				tooltip.add("Owner : " + nbt.getString("maid_owner"));
 			}
-			if (stack.getTagCompound().hasKey("maid_name")) {
-				tooltip.add("Maid : " + stack.getTagCompound().getString("maid_name"));
+			if (nbt.hasKey("maid_name")) {
+				tooltip.add("Maid : " + nbt.getString("maid_name"));
 			}
 		}
     }
@@ -197,6 +199,53 @@ public static void registerEntities(RegistryEvent.Register<EntityEntry> event) {
         
         public EntityItemMaidSouvenir(World worldIn, double x, double y, double z, ItemStack stack) {
             super(worldIn, x, y, z, stack);
+            
+            // 【阵亡信标逻辑】：在遗物生成的瞬间，向主人发送救援坐标
+            if (!worldIn.isRemote && !stack.isEmpty() && stack.hasTagCompound()) {
+                NBTTagCompound nbt = stack.getTagCompound();
+                
+                if (!nbt.hasKey("death_notified") && nbt.hasKey("maid_owner")) {
+                    nbt.setBoolean("death_notified", true);
+                    
+                    String ownerStr = nbt.getString("maid_owner");
+                    
+                    // 🌟 已修复：通过 TextComponent 处理未知女仆的本地化
+                    Object maidNameObj = nbt.hasKey("maid_name") ? nbt.getString("maid_name") : new net.minecraft.util.text.TextComponentTranslation("message.lmr.souvenir.unknown_maid");
+                    
+                    EntityPlayer player = null;
+                    try {
+                        player = worldIn.getPlayerEntityByUUID(java.util.UUID.fromString(ownerStr));
+                    } catch (Exception e) {
+                        player = worldIn.getPlayerEntityByName(ownerStr);
+                    }
+
+                    if (player != null) {
+                        int dim = worldIn.provider.getDimension();
+                        
+                        // 🌟 已修复：维度名称彻底通过本地化语言包翻译，杜绝 Java 内硬编码
+                        Object dimComponent;
+                        if (dim == 0) {
+                            dimComponent = new net.minecraft.util.text.TextComponentTranslation("message.lmr.dim.0");
+                        } else if (dim == -1) {
+                            dimComponent = new net.minecraft.util.text.TextComponentTranslation("message.lmr.dim.-1");
+                        } else if (dim == 1) {
+                            dimComponent = new net.minecraft.util.text.TextComponentTranslation("message.lmr.dim.1");
+                        } else {
+                            dimComponent = new net.minecraft.util.text.TextComponentTranslation("message.lmr.dim.unknown", dim);
+                        }
+                        
+                        // 发送完全本地化的阵亡信标通知（括号层级完全闭合正确）
+                        player.sendMessage(new net.minecraft.util.text.TextComponentTranslation(
+                                "message.lmr.souvenir.death_notice", 
+                                maidNameObj, 
+                                dimComponent, 
+                                (int)x, 
+                                (int)y, 
+                                (int)z
+                        ));
+                    }
+                }
+            }
         }
 
         public EntityItemMaidSouvenir(World worldIn) {
