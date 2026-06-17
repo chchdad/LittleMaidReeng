@@ -30,8 +30,6 @@ import net.minecraft.util.DamageSource;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.MathHelper;
 
-import net.minecraft.entity.ai.EntityAIOwnerHurtByTarget;
-import net.minecraft.entity.ai.EntityAIOwnerHurtTarget;
 import net.minecraft.entity.monster.IMob;
 
 public class EntityMode_Fencer extends EntityModeBase {
@@ -70,49 +68,59 @@ public class EntityMode_Fencer extends EntityModeBase {
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
-		ltasks[1].addTask(1, new EntityAIOwnerHurtByTarget(owner) {
+		//  优先级1：采用自定义靶向系统，强制中断她手头的任务立刻保护！
+		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
+			private EntityLivingBase attacker;
 			@Override
 			public boolean shouldExecute() {
-				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getRevengeTarget();
-				return target != null && !owner.getIFF(target) && (target instanceof IMob);
+				if (owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase newAttacker = owner.getMaidMasterEntity().getRevengeTarget();
+				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
+					return false;
+				}
+				this.attacker = newAttacker;
+				return true;
+			}
+			@Override
+			public void startExecuting() {
+				// 强制掰过女仆的头，直接把仇恨死死锁定在打主人的怪身上！
+				owner.setAttackTarget(this.attacker);
+				super.startExecuting();
 			}
 		});
 
-		//  带有攻击次数与伤害双阈值评估的集火 AI
-		ltasks[1].addTask(2, new EntityAIOwnerHurtTarget(owner) {
-			private EntityLivingBase currentTarget = null;
-			private int hitCount = 0;
+		//  优先级2：持久化独立记仇（记录每个怪的被砍次数，切怪不丢失）
+		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
+			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
+			private EntityLivingBase targetToAttack;
 
 			@Override
 			public boolean shouldExecute() {
-				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
+				if (owner.getMaidMasterEntity() == null) return false;
 				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || owner.getIFF(target)) {
-					currentTarget = null;
-					return false;
-				}
+				if (target == null || !target.isEntityAlive() || owner.getIFF(target)) return false;
 
-				// 如果换了攻击目标，计数器清零重新评估
-				if (target != currentTarget) {
-					currentTarget = target;
-					hitCount = 0;
-					lastAttackTick = 0;
-				}
-
-				// 捕捉实际攻击动作，防止每 tick 循环重复计次
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
-					hitCount++;
 					lastAttackTick = currentTick;
+					int id = target.getEntityId();
+					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
 				float missingHealth = target.getMaxHealth() - target.getHealth();
-				
-				// 伤害达 10 点，或者虽然没到 10 点但是敲了 6 次以上
-				return missingHealth >= 10.0F || hitCount >= 6;
+				if (missingHealth >= 10.0F || hitCountMap.getOrDefault(target.getEntityId(), 0) >= 6) {
+					this.targetToAttack = target;
+					return true;
+				}
+				return false;
+			}
+
+			@Override
+			public void startExecuting() {
+				owner.setAttackTarget(this.targetToAttack);
+				super.startExecuting();
 			}
 		});
 
@@ -121,48 +129,61 @@ public class EntityMode_Fencer extends EntityModeBase {
 		owner.addMaidMode(mmode_Fencer, ltasks);
 
 
+		// Bloodsucker 同理
 		EntityAITasks[] ltasks2 = new EntityAITasks[2];
 		ltasks2[0] = pDefaultMove;
 		ltasks2[1] = new EntityAITasks(owner.aiProfiler);
 
-		ltasks2[1].addTask(1, new EntityAIOwnerHurtByTarget(owner) {
+		ltasks2[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
+			private EntityLivingBase attacker;
 			@Override
 			public boolean shouldExecute() {
-				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getRevengeTarget();
-				return target != null && !owner.getIFF(target) && (target instanceof IMob);
+				if (owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase newAttacker = owner.getMaidMasterEntity().getRevengeTarget();
+				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
+					return false;
+				}
+				this.attacker = newAttacker;
+				return true;
+			}
+			@Override
+			public void startExecuting() {
+				owner.setAttackTarget(this.attacker);
+				super.startExecuting();
 			}
 		});
 		
-		ltasks2[1].addTask(2, new EntityAIOwnerHurtTarget(owner) {
-			private EntityLivingBase currentTarget = null;
-			private int hitCount = 0;
+		ltasks2[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
+			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
+			private EntityLivingBase targetToAttack;
 
 			@Override
 			public boolean shouldExecute() {
-				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
+				if (owner.getMaidMasterEntity() == null) return false;
 				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || owner.getIFF(target)) {
-					currentTarget = null;
-					return false;
-				}
-
-				if (target != currentTarget) {
-					currentTarget = target;
-					hitCount = 0;
-					lastAttackTick = 0;
-				}
+				if (target == null || !target.isEntityAlive() || owner.getIFF(target)) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
-					hitCount++;
 					lastAttackTick = currentTick;
+					int id = target.getEntityId();
+					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
 				float missingHealth = target.getMaxHealth() - target.getHealth();
-				return missingHealth >= 10.0F || hitCount >= 6;
+				if (missingHealth >= 10.0F || hitCountMap.getOrDefault(target.getEntityId(), 0) >= 6) {
+					this.targetToAttack = target;
+					return true;
+				}
+				return false;
+			}
+
+			@Override
+			public void startExecuting() {
+				owner.setAttackTarget(this.targetToAttack);
+				super.startExecuting();
 			}
 		});
 
@@ -288,8 +309,12 @@ public class EntityMode_Fencer extends EntityModeBase {
 				owner.getMaidMasterEntity().getDistanceSq(pEntity) >= getLimitRangeSqOnFollow()) {
 			return false;
 		}
+		
+		// 如果苦力怕的目标是主人，或者是女仆自己，允许女仆痛下杀手！
 		if (pEntity instanceof EntityCreeper) {
-			if (owner.getMaidMasterEntity() == null ? true : !owner.getMaidMasterEntity().equals(((EntityCreeper) pEntity).getAttackTarget())) {
+			boolean attackingOwner = owner.getMaidMasterEntity() != null && owner.getMaidMasterEntity().equals(((EntityCreeper) pEntity).getAttackTarget());
+			boolean attackingMaid = pEntity.equals(owner.getRevengeTarget()) || owner.equals(((EntityCreeper)pEntity).getAttackTarget());
+			if (!attackingOwner && !attackingMaid) {
 				return false;
 			}
 		}
@@ -299,6 +324,28 @@ public class EntityMode_Fencer extends EntityModeBase {
 	@Override
     public void updateAITick(String pMode) {
         super.updateAITick(pMode);
+        
+        // 自动脱离未知生物坐骑（防止被别的模组的怪强行抓走骑乘）
+        if (owner.isRiding()) {
+            Entity mount = owner.getRidingEntity();
+            if (mount instanceof EntityLivingBase) {
+                boolean isSafeMount = false;
+                
+                // 如果是主人驯服的宠物（如狗、猫）或者马匹，允许骑乘
+                if (mount instanceof net.minecraft.entity.passive.EntityTameable) {
+                    UUID tameOwner = ((net.minecraft.entity.passive.EntityTameable)mount).getOwnerId();
+                    if (tameOwner != null && tameOwner.equals(owner.getMaidMasterUUID())) isSafeMount = true;
+                } else if (mount instanceof net.minecraft.entity.passive.AbstractHorse) {
+                    UUID horseOwner = ((net.minecraft.entity.passive.AbstractHorse)mount).getOwnerUniqueId();
+                    if (horseOwner != null && horseOwner.equals(owner.getMaidMasterUUID())) isSafeMount = true;
+                }
+                
+                // 除了主人的宠物，其他的生物坐骑一律自动潜行脱离
+                if (!isSafeMount) {
+                    owner.dismountRidingEntity();
+                }
+            }
+        }
     }
 
 	@Override
