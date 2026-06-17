@@ -40,6 +40,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private long blacklistEndTime = 0;
     
     private boolean isPatrolling = false;
+    
+    // 霸体模式
+    private boolean ignoreColleagues = false;
 
     private double lastOwnerX, lastOwnerY, lastOwnerZ;
     private boolean isOwnerMoving = false;
@@ -218,6 +221,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         this.checkStuckTimer = 0;
         this.realStuckCount = 0;
         this.isPatrolling = false; 
+        this.ignoreColleagues = false; // 任务开始时重置霸体状态
         
         EntityPlayer owner = null;
         if (maid.getOwner() instanceof EntityPlayer) {
@@ -278,10 +282,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         return false;
     }
 
-        @Override
+    @Override
     public void updateTask() {
-        // 🌟【新增：摸鱼打断雷达 (极速降载版)】
-        // 加上女仆自身的 ID 进行取模！平摊算力！
+        // 错峰雷达，平摊算力
         if (this.isPatrolling && (maid.getEntityWorld().getTotalWorldTime() + maid.getEntityId()) % 20 == 0) {
             BlockPos center = new BlockPos(maid);
             World world = maid.getEntityWorld();
@@ -294,12 +297,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                         IBlockState state = world.getBlockState(pos);
                         Block block = state.getBlock();
                         
-                        // 【极速判定】：只看有没有熟小麦和甘蔗！不去深度判定空耕地和水！瞬间完成！
                         boolean isHarvestable = (block instanceof BlockCrops && ((BlockCrops) block).isMaxAge(state)) || 
                                                 (block == Blocks.REEDS && world.getBlockState(pos.down()).getBlock() == Blocks.REEDS);
                                                 
                         if (isHarvestable) {
-                            // 确保不是在黑名单里的地块
                             if (this.blacklistedTarget == null || !this.blacklistedTarget.equals(pos) || world.getTotalWorldTime() >= this.blacklistEndTime) {
                                 foundWork = true;
                                 break;
@@ -312,12 +313,12 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             }
             
             if (foundWork) {
-                System.out.println("[LMR-FARM-DEBUG] 摸鱼时发现成熟作物！立刻终止巡逻！");
                 this.isPatrolling = false;
-                this.actionCompleted = true; // 强制结束巡逻任务
-                maid.getNavigator().clearPath(); // 立刻刹车
-                this.actionCooldown = 0; // 取消发呆状态
-                return; // 退出，下一 Tick 会直接转入正常收割模式
+                this.actionCompleted = true; 
+                maid.getNavigator().clearPath(); 
+                this.actionCooldown = 0; 
+                this.ignoreColleagues = false; // 退出巡逻，解除霸体
+                return; 
             }
         }
 
@@ -340,7 +341,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
         double myDistToTarget = maid.getDistanceSqToCenter(this.destinationBlock);
 
-        if (!this.isPatrolling && myDistToTarget > 9.0D) {
+        //增加 ignoreColleagues 判断】
+        // 如果没有开启“霸体”，才执行让路逻辑
+        if (!this.isPatrolling && !this.ignoreColleagues && myDistToTarget > 9.0D) {
             java.util.List<EntityLittleMaid> nearbyMaids = maid.getEntityWorld().getEntitiesWithinAABB(
                 EntityLittleMaid.class, 
                 maid.getEntityBoundingBox().grow(2.0D, 1.0D, 2.0D) 
@@ -359,6 +362,9 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                         this.actionCompleted = true; 
                         maid.getNavigator().clearPath(); 
                         this.actionCooldown = 5; 
+                        
+                        //  触发让路后，立刻开启“霸体”
+                        this.ignoreColleagues = true; 
                         return; 
                     }
                 }
@@ -378,7 +384,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             } else {
                 executeAction();
                 maid.getNavigator().clearPath();
-                this.actionCooldown = 12;
+                
+                // 干完活强制等待 1 到 3 秒（20~60 Ticks）！
+                this.actionCooldown = 20 + maid.getRNG().nextInt(40);
+                this.ignoreColleagues = false; // 活干完了，解除霸体
             }
         } else {
             this.checkStuckTimer++;
@@ -422,6 +431,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                         }
                         maid.getNavigator().clearPath();
                         this.actionCooldown = 5;
+                        this.ignoreColleagues = false; // 卡死了重新找地，解除霸体
                     } else {
                         if (this.isPatrolling) {
                             maid.getNavigator().clearPath();
@@ -429,7 +439,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                         } else {
                             executeAction(); 
                             maid.getNavigator().clearPath();
-                            this.actionCooldown = 12;
+                            
+                            // 强行收割完也要休息 1~3 秒
+                            this.actionCooldown = 20 + maid.getRNG().nextInt(40);
+                            this.ignoreColleagues = false; 
                         }
                     }
                     return; 
