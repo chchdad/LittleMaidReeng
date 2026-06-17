@@ -223,6 +223,13 @@ item.maid_stick.details2=切换自由模式（潜行模式下）
 item.maid_stick.details3=寻找女仆（副手）
 message.lmr.souvenir.crush_warning=再次按shift+右键 %s 次将销毁纪念品！
 message.lmr.souvenir.crush_done=已销毁女仆的纪念品
-message.lmreengaged.maid_safe_escape=§e[警告] §f%1$s的储存蛋已被损毁，已自动放出相应女仆。当前位置: %2$s (%3$s, %4$s, %5$s)，且正在待命状态。
+message.lmreengaged.maid_safe_escape=§f%1$s的储存蛋已被损毁，已自动放出相应女仆。当前位置: %2$s (%3$s, %4$s, %5$s)，且正在待命状态。
+message.lmr.souvenir.crush_timeout=销毁操作超时，进度已重置。
+message.lmr.souvenir.unknown_maid=未知女仆
+message.lmr.souvenir.death_notice=§f女仆 %1$s 死亡坐标位于 %2$s (%3$s, %4$s, %5$s)
+message.lmr.dim.0=主世界
+message.lmr.dim.-1=下界
+message.lmr.dim.1=末地
+message.lmr.dim.unknown=维度: %1$s
 
 
