@@ -40,8 +40,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private long blacklistEndTime = 0;
     
     private boolean isPatrolling = false;
-    
-    // 霸体模式
     private boolean ignoreColleagues = false;
 
     private double lastOwnerX, lastOwnerY, lastOwnerZ;
@@ -95,6 +93,11 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             for (int y = -2; y <= 2; y++) {
                 for (int z = -range; z <= range; z++) {
                     BlockPos pos = center.add(x, y, z);
+                    
+                    // 如果该区块未加载，不去强行读取
+                    if (!world.isBlockLoaded(pos)) {
+                        continue;
+                    }
                     
                     if (owner != null && !maid.isFreedom() && owner.getDistanceSqToCenter(pos) > 625.0D) {
                         continue; 
@@ -155,6 +158,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 for (int y = -2; y <= 2; y++) {
                     for (int z = -16; z <= 16; z++) {
                         BlockPos pos = center.add(x, y, z);
+                        
+                        //  巡逻时同样加入区块保护！
+                        if (!world.isBlockLoaded(pos)) continue;
+                        
                         Block block = world.getBlockState(pos).getBlock();
                         if (block == Blocks.FARMLAND || block instanceof BlockCrops || block == Blocks.REEDS) {
                             patrolTargets.add(pos);
@@ -221,7 +228,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         this.checkStuckTimer = 0;
         this.realStuckCount = 0;
         this.isPatrolling = false; 
-        this.ignoreColleagues = false; // 任务开始时重置霸体状态
+        this.ignoreColleagues = false; 
         
         EntityPlayer owner = null;
         if (maid.getOwner() instanceof EntityPlayer) {
@@ -284,7 +291,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
     @Override
     public void updateTask() {
-        // 错峰雷达，平摊算力
         if (this.isPatrolling && (maid.getEntityWorld().getTotalWorldTime() + maid.getEntityId()) % 20 == 0) {
             BlockPos center = new BlockPos(maid);
             World world = maid.getEntityWorld();
@@ -294,6 +300,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 for (int y = -2; y <= 2; y++) {
                     for (int z = -16; z <= 16; z++) {
                         BlockPos pos = center.add(x, y, z);
+                        
+                        //  余光扫描加入区块保护
+                        if (!world.isBlockLoaded(pos)) continue;
+                        
                         IBlockState state = world.getBlockState(pos);
                         Block block = state.getBlock();
                         
@@ -317,7 +327,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 this.actionCompleted = true; 
                 maid.getNavigator().clearPath(); 
                 this.actionCooldown = 0; 
-                this.ignoreColleagues = false; // 退出巡逻，解除霸体
+                this.ignoreColleagues = false; 
                 return; 
             }
         }
@@ -341,8 +351,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
         double myDistToTarget = maid.getDistanceSqToCenter(this.destinationBlock);
 
-        //增加 ignoreColleagues 判断】
-        // 如果没有开启“霸体”，才执行让路逻辑
         if (!this.isPatrolling && !this.ignoreColleagues && myDistToTarget > 9.0D) {
             java.util.List<EntityLittleMaid> nearbyMaids = maid.getEntityWorld().getEntitiesWithinAABB(
                 EntityLittleMaid.class, 
@@ -363,7 +371,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                         maid.getNavigator().clearPath(); 
                         this.actionCooldown = 5; 
                         
-                        //  触发让路后，立刻开启“霸体”
                         this.ignoreColleagues = true; 
                         return; 
                     }
@@ -380,14 +387,15 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (myDistToTarget < 4.5D) {
             if (this.isPatrolling) {
                 maid.getNavigator().clearPath();
+                // 巡逻看风景的硬直
                 this.actionCooldown = 40 + maid.getRNG().nextInt(40);
             } else {
                 executeAction();
                 maid.getNavigator().clearPath();
                 
-                // 干完活强制等待 1 到 3 秒（20~60 Ticks）！
-                this.actionCooldown = 20 + maid.getRNG().nextInt(40);
-                this.ignoreColleagues = false; // 活干完了，解除霸体
+                // 将原来的 1~3 秒硬直，降低为 0.25秒~0.75秒
+                this.actionCooldown = 5 + maid.getRNG().nextInt(10);
+                this.ignoreColleagues = false; 
             }
         } else {
             this.checkStuckTimer++;
@@ -411,7 +419,11 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     boolean hasFence = false;
                     for (int fx = -1; fx <= 1; fx++) {
                         for (int fz = -1; fz <= 1; fz++) {
-                            Block b = maid.getEntityWorld().getBlockState(new BlockPos(maid).add(fx, 0, fz)).getBlock();
+                            BlockPos checkPos = new BlockPos(maid).add(fx, 0, fz);
+                            //  安全锁
+                            if (!maid.getEntityWorld().isBlockLoaded(checkPos)) continue;
+                            
+                            Block b = maid.getEntityWorld().getBlockState(checkPos).getBlock();
                             if (b instanceof net.minecraft.block.BlockFence || 
                                 b instanceof net.minecraft.block.BlockWall || 
                                 b instanceof net.minecraft.block.BlockFenceGate) {
@@ -431,7 +443,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                         }
                         maid.getNavigator().clearPath();
                         this.actionCooldown = 5;
-                        this.ignoreColleagues = false; // 卡死了重新找地，解除霸体
+                        this.ignoreColleagues = false; 
                     } else {
                         if (this.isPatrolling) {
                             maid.getNavigator().clearPath();
@@ -440,8 +452,8 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                             executeAction(); 
                             maid.getNavigator().clearPath();
                             
-                            // 强行收割完也要休息 1~3 秒
-                            this.actionCooldown = 20 + maid.getRNG().nextInt(40);
+                            // 强行收割完的硬直也大幅降低
+                            this.actionCooldown = 5 + maid.getRNG().nextInt(10);
                             this.ignoreColleagues = false; 
                         }
                     }
@@ -460,6 +472,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private void executeAction() {
         World world = maid.getEntityWorld();
         BlockPos pos = this.destinationBlock;
+        
+        //  确保目标区块在线
+        if (!world.isBlockLoaded(pos)) return;
+        
         IBlockState state = world.getBlockState(pos);
         Block block = state.getBlock();
         ItemStack curStack = maid.getCurrentEquippedItem();
@@ -535,7 +551,8 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private boolean isBlockWatered(World world, BlockPos pos) {
         int radius = 4;
         for (BlockPos.MutableBlockPos mutablePos : BlockPos.getAllInBoxMutable(pos.add(-radius, 0, -radius), pos.add(radius, 1, radius))) {
-            if (world.getBlockState(mutablePos).getMaterial() == Material.WATER) {
+            //  水源扫描也要加锁
+            if (world.isBlockLoaded(mutablePos) && world.getBlockState(mutablePos).getMaterial() == Material.WATER) {
                 return true;
             }
         }
@@ -554,7 +571,8 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
         boolean hasAdjacentFarmland = false;
         for (EnumFacing facing : EnumFacing.HORIZONTALS) {
-            if (world.getBlockState(pos.offset(facing)).getBlock() == Blocks.FARMLAND) {
+            BlockPos offsetPos = pos.offset(facing);
+            if (world.isBlockLoaded(offsetPos) && world.getBlockState(offsetPos).getBlock() == Blocks.FARMLAND) {
                 hasAdjacentFarmland = true;
                 break;
             }
