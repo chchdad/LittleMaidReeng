@@ -47,10 +47,16 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private long lastCheckTime = 0;
     private int ownerStopTicks = 0;
 
-    //巡逻死锁解决的相关计时变量
+    // 巡逻防扎堆死锁
     private long nextPatrolYieldTime = 0;
     private int consecutivePatrolYields = 0;
     private long lastPatrolYieldTime = 0;
+
+    // Tick Slicing状态变量
+    private int currentScanRing = 0;
+    private BlockPos currentScanCenter = null;
+    private static final int RING_STEP = 6; // 每次扫 6 格宽度的同心圆环
+    private static final int MAX_RING = 24;
 
     public EntityAILMRFarmer(EntityLittleMaid entityMaid, double speedIn) {
         super(entityMaid, speedIn, 16);
@@ -80,57 +86,52 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         }
         return isOwnerMoving;
     }
-
-    private boolean searchNextTarget() {
-        List<BlockPos> validTargets = new ArrayList<>();
-        BlockPos center = new BlockPos(maid);
-        World world = maid.getEntityWorld();
-        
-        int range = 24; 
-        
-        EntityPlayer owner = null;
-        if (maid.getOwner() instanceof EntityPlayer) {
-            owner = (EntityPlayer) maid.getOwner();
+    
+    private boolean searchNextTargetSpliced() {
+        if (this.currentScanRing == 0 || this.currentScanCenter == null) {
+            this.currentScanCenter = new BlockPos(maid);
         }
 
-        boolean limitReached = false;
-        for (int x = -range; x <= range; x++) {
-            for (int y = -2; y <= 2; y++) {
-                for (int z = -range; z <= range; z++) {
-                    BlockPos pos = center.add(x, y, z);
+        int startR = this.currentScanRing;
+        int endR = Math.min(startR + RING_STEP - 1, MAX_RING); 
+
+        List<BlockPos> validTargets = new ArrayList<>();
+        World world = maid.getEntityWorld();
+        EntityPlayer owner = (maid.getOwner() instanceof EntityPlayer) ? (EntityPlayer) maid.getOwner() : null;
+
+        // 逐层向外扩散扫描，每一 Tick 只扫描一个特定宽度的圆环
+        for (int x = -endR; x <= endR; x++) {
+            for (int z = -endR; z <= endR; z++) {
+                // 如果落在内圈（上一帧已经扫过了），直接跳过
+                if (Math.max(Math.abs(x), Math.abs(z)) < startR) continue;
+                
+                for (int y = -2; y <= 2; y++) {
+                    BlockPos pos = this.currentScanCenter.add(x, y, z);
                     
-                    if (!world.isBlockLoaded(pos)) {
+                    if (!world.isBlockLoaded(pos)) continue;
+
+                    if (owner != null && !maid.isFreedom() && owner.getDistanceSqToCenter(pos) > 625.0D) {
                         continue;
                     }
-                    
-                    if (owner != null && !maid.isFreedom() && owner.getDistanceSqToCenter(pos) > 625.0D) {
-                        continue; 
-                    }
-                    
                     if (this.blacklistedTarget != null && this.blacklistedTarget.equals(pos)) {
-                        if (world.getTotalWorldTime() < this.blacklistEndTime) {
-                            continue; 
-                        } else {
-                            this.blacklistedTarget = null; 
-                        }
+                        if (world.getTotalWorldTime() < this.blacklistEndTime) continue;
+                        else this.blacklistedTarget = null;
                     }
-                    
+
                     if (this.shouldMoveTo(world, pos)) {
                         validTargets.add(pos);
-                        if (validTargets.size() >= 30) {
-                            limitReached = true;
-                            break;
-                        }
                     }
                 }
-                if (limitReached) break;
             }
-            if (limitReached) break;
         }
 
+        // 指向下一个环的起点
+        this.currentScanRing = endR + 1;
+
         if (!validTargets.isEmpty()) {
-            this.isPatrolling = false; 
-            validTargets.sort(Comparator.comparingDouble(p -> p.distanceSq(center)));
+            this.isPatrolling = false;
+            // 同一个环内的再算一次精确距离排序
+            validTargets.sort(Comparator.comparingDouble(p -> p.distanceSq(this.currentScanCenter)));
             
             int pathfindAttempts = 0;
             for (BlockPos target : validTargets) {
@@ -140,7 +141,7 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     return true;
                 }
                 
-                if (pathfindAttempts >= 2) break;
+                if (pathfindAttempts >= 2) break; // 防止在一帧内过度寻路
                 pathfindAttempts++;
                 
                 net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
@@ -156,48 +157,44 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     }
                 }
             }
-        } else {
-            List<BlockPos> patrolTargets = new ArrayList<>();
-            for (int x = -16; x <= 16; x++) {
-                for (int y = -2; y <= 2; y++) {
-                    for (int z = -16; z <= 16; z++) {
-                        BlockPos pos = center.add(x, y, z);
-                        
-                        if (!world.isBlockLoaded(pos)) continue;
-                        
-                        Block block = world.getBlockState(pos).getBlock();
-                        if (block == Blocks.FARMLAND || block instanceof BlockCrops || block == Blocks.REEDS) {
-                            patrolTargets.add(pos);
-                            if (patrolTargets.size() >= 15) {
-                                x = 17; y = 3; z = 17; 
-                            }
+        }
+
+        // 如果整个 24 格都扫完了也没找到作物，那就触发“随机采样”找空地溜达
+        if (this.currentScanRing > MAX_RING) {
+            // 不再遍历 5445 个方块，仅随机抽样 15 次寻找溜达目标
+            for (int i = 0; i < 15; i++) {
+                int rx = maid.getRNG().nextInt(33) - 16;
+                int ry = maid.getRNG().nextInt(5) - 2;
+                int rz = maid.getRNG().nextInt(33) - 16;
+                BlockPos pos = this.currentScanCenter.add(rx, ry, rz);
+                
+                if (!world.isBlockLoaded(pos)) continue;
+                
+                Block block = world.getBlockState(pos).getBlock();
+                if (block == Blocks.FARMLAND || block instanceof BlockCrops || block == Blocks.REEDS) {
+                    BlockPos target = pos.add(maid.getRNG().nextInt(5) - 2, 0, maid.getRNG().nextInt(5) - 2);
+                    net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
+                    if (path != null) {
+                        net.minecraft.pathfinding.PathPoint endPoint = path.getFinalPathPoint();
+                        if (endPoint != null && target.distanceSq(endPoint.x, endPoint.y, endPoint.z) <= 9.0D) {
+                            this.destinationBlock = target;
+                            this.isPatrolling = true; 
+                            maid.getNavigator().setPath(path, this.moveSpeed * 0.7D); 
+                            return true;
                         }
                     }
                 }
             }
-            
-            if (!patrolTargets.isEmpty()) {
-                BlockPos baseTarget = patrolTargets.get(maid.getRNG().nextInt(patrolTargets.size()));
-                BlockPos target = baseTarget.add(maid.getRNG().nextInt(5) - 2, 0, maid.getRNG().nextInt(5) - 2);
-                
-                net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
-                if (path != null) {
-                    net.minecraft.pathfinding.PathPoint endPoint = path.getFinalPathPoint();
-                    if (endPoint != null && target.distanceSq(endPoint.x, endPoint.y, endPoint.z) <= 9.0D) {
-                        this.destinationBlock = target;
-                        this.isPatrolling = true; 
-                        maid.getNavigator().setPath(path, this.moveSpeed * 0.7D); 
-                        return true;
-                    }
-                }
-            }
         }
+        
+        // 这一帧没找到结果，返回 false 以让出 CPU，下一帧继续扫下一个环
         return false;
     }
 
     @Override
     public boolean shouldExecute() {
         if (!EntityMode_Farmer.mmode_Farmer.equals(maid.getMaidModeString()) || maid.isMaidWait() || maid.getCurrentEquippedItem().isEmpty()) {
+            this.currentScanRing = 0; // 状态中断时重置雷达
             return false;
         }
         
@@ -206,8 +203,8 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             boolean isMoving = checkOwnerMoving(owner);
             double distSq = maid.getDistanceSq(owner);
             
-            if (distSq > 1024.0D) return false; 
-            if (distSq > 64.0D && isMoving) return false; 
+            if (distSq > 1024.0D) { this.currentScanRing = 0; return false; } 
+            if (distSq > 64.0D && isMoving) { this.currentScanRing = 0; return false; } 
         }
 
         if (this.customScanDelay > 0) {
@@ -215,12 +212,19 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             return false;
         }
 
-        if (searchNextTarget()) {
+        // 分帧扫描
+        boolean found = searchNextTargetSpliced();
+        if (found) {
+            this.currentScanRing = 0; // 找到目标，重置雷达
             return true;
+        } else {
+            // 如果雷达扫满了最大圈还是没结果，说明真的没活干，进入 1 秒的彻底待机冷却
+            if (this.currentScanRing > MAX_RING) {
+                this.currentScanRing = 0;
+                this.customScanDelay = 20; 
+            }
+            return false;
         }
-
-        this.customScanDelay = 20; 
-        return false;
     }
 
     @Override
@@ -262,7 +266,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         }
         
         if (this.actionCooldown > 0) return true;
-        
         if (this.isPatrolling) return true; 
         
         return this.shouldMoveTo(maid.getEntityWorld(), this.destinationBlock);
@@ -301,9 +304,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             World world = maid.getEntityWorld();
             boolean foundWork = false;
             
-            for (int x = -16; x <= 16; x++) {
+            // 将闲逛时的余光雷达从半径 16 缩减为 5
+            for (int x = -5; x <= 5; x++) {
                 for (int y = -2; y <= 2; y++) {
-                    for (int z = -16; z <= 16; z++) {
+                    for (int z = -5; z <= 5; z++) {
                         BlockPos pos = center.add(x, y, z);
                         
                         if (!world.isBlockLoaded(pos)) continue;
@@ -339,23 +343,17 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (this.actionCooldown > 0) {
             this.actionCooldown--;
             if (this.actionCooldown == 0) {
-                if (searchNextTarget()) {
-                    this.realStuckCount = 0;
-                    this.checkStuckTimer = 0;
-                    this.lastPosX = maid.posX;
-                    this.lastPosY = maid.posY;
-                    this.lastPosZ = maid.posZ;
-                } else {
-                    this.actionCompleted = true;
-                    this.customScanDelay = 20; 
-                }
+                // 拔掉 updateTask 中的同步锁死扫描！
+                // 结束当前任务，将控制权交还给 shouldExecute 引擎，由它用平滑的分帧雷达去干活
+                this.currentScanRing = 0;
+                this.actionCompleted = true; 
             }
             return; 
         }
 
         double myDistToTarget = maid.getDistanceSqToCenter(this.destinationBlock);
 
-        //  干活避让 + 巡逻防扎堆死锁
+        // 干活避让 + 巡逻防扎堆 死锁解决系统
         if (!this.ignoreColleagues && (this.isPatrolling || myDistToTarget > 9.0D)) {
             java.util.List<EntityLittleMaid> nearbyMaids = maid.getEntityWorld().getEntitiesWithinAABB(
                 EntityLittleMaid.class, 
@@ -368,12 +366,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     if (this.isPatrolling) {
                         long currentTime = maid.getEntityWorld().getTotalWorldTime();
                         
-                        // 1. 处于 30 秒“霸体”冷却期内，直接无视同事继续巡逻，不触发重新寻路
                         if (currentTime < this.nextPatrolYieldTime) {
                             continue; 
                         }
                         
-                        // 2. 如果距离上次避让已经过去超过 10 秒，重置连击次数
                         if (currentTime - this.lastPatrolYieldTime > 200) {
                             this.consecutivePatrolYields = 0;
                         }
@@ -381,21 +377,17 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                         this.consecutivePatrolYields++;
                         this.lastPatrolYieldTime = currentTime;
                         
-                        // 3. 如果短时间内连续触发了 3 次避让
                         if (this.consecutivePatrolYields >= 3) {
-                            // 触发 30 秒（600 tick）的无视冷却期
                             this.nextPatrolYieldTime = currentTime + 600;
                             this.consecutivePatrolYields = 0;
-                            continue; // 这一次直接硬穿过去，打破死锁
+                            continue; 
                         }
 
-                        // 正常的巡逻社交距离避让
                         this.actionCompleted = true; 
                         maid.getNavigator().clearPath(); 
                         this.actionCooldown = 20 + maid.getRNG().nextInt(20); 
                         return; 
                     } else {
-                        // 抢活避让逻辑
                         double otherDistToTarget = otherMaid.getDistanceSqToCenter(this.destinationBlock);
                         boolean shouldYield = (otherDistToTarget < myDistToTarget) || 
                                               (Math.abs(otherDistToTarget - myDistToTarget) < 0.1D && otherMaid.getEntityId() < maid.getEntityId());
