@@ -4,6 +4,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.UUID;
 
 import net.blacklab.lmr.achievements.AchievementsLMRE;
 import net.blacklab.lmr.achievements.AchievementsLMRE.AC;
@@ -32,9 +33,8 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 
-import net.minecraft.entity.ai.EntityAIOwnerHurtByTarget;
-import net.minecraft.entity.ai.EntityAIOwnerHurtTarget;
 import net.minecraft.entity.monster.IMob;
+import net.minecraft.entity.monster.EntityCreeper;
 
 public class EntityMode_Archer extends EntityModeBase {
 
@@ -74,45 +74,58 @@ public class EntityMode_Archer extends EntityModeBase {
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
-		ltasks[1].addTask(1, new EntityAIOwnerHurtByTarget(owner) {
+		//  优先级1：绝对护卫射手版！
+		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
+			private EntityLivingBase attacker;
 			@Override
 			public boolean shouldExecute() {
-				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getRevengeTarget();
-				return target != null && !owner.getIFF(target) && (target instanceof IMob);
+				if (owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase newAttacker = owner.getMaidMasterEntity().getRevengeTarget();
+				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
+					return false;
+				}
+				this.attacker = newAttacker;
+				return true;
+			}
+			@Override
+			public void startExecuting() {
+				owner.setAttackTarget(this.attacker);
+				super.startExecuting();
 			}
 		});
 		
-		// 带有双重阈值评估的集火 AI (射手同样适用)
-		ltasks[1].addTask(2, new EntityAIOwnerHurtTarget(owner) {
-			private EntityLivingBase currentTarget = null;
-			private int hitCount = 0;
+		//  优先级2：持久化独立记仇（远程）
+		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
+			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
+			private EntityLivingBase targetToAttack;
 
 			@Override
 			public boolean shouldExecute() {
-				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
+				if (owner.getMaidMasterEntity() == null) return false;
 				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || owner.getIFF(target)) {
-					currentTarget = null;
-					return false;
-				}
-
-				if (target != currentTarget) {
-					currentTarget = target;
-					hitCount = 0;
-					lastAttackTick = 0;
-				}
+				if (target == null || !target.isEntityAlive() || owner.getIFF(target)) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
-					hitCount++;
 					lastAttackTick = currentTick;
+					int id = target.getEntityId();
+					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
 				float missingHealth = target.getMaxHealth() - target.getHealth();
-				return missingHealth >= 10.0F || hitCount >= 6;
+				if (missingHealth >= 10.0F || hitCountMap.getOrDefault(target.getEntityId(), 0) >= 6) {
+					this.targetToAttack = target;
+					return true;
+				}
+				return false;
+			}
+
+			@Override
+			public void startExecuting() {
+				owner.setAttackTarget(this.targetToAttack);
+				super.startExecuting();
 			}
 		});
 
@@ -125,43 +138,56 @@ public class EntityMode_Archer extends EntityModeBase {
 		ltasks2[0] = pDefaultMove;
 		ltasks2[1] = new EntityAITasks(owner.aiProfiler);
 
-		ltasks2[1].addTask(1, new EntityAIOwnerHurtByTarget(owner) {
+		ltasks2[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
+			private EntityLivingBase attacker;
 			@Override
 			public boolean shouldExecute() {
-				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getRevengeTarget();
-				return target != null && !owner.getIFF(target) && (target instanceof IMob);
-			}
-		});
-		ltasks2[1].addTask(2, new EntityAIOwnerHurtTarget(owner) {
-			private EntityLivingBase currentTarget = null;
-			private int hitCount = 0;
-			private int lastAttackTick = 0;
-
-			@Override
-			public boolean shouldExecute() {
-				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
-				
-				if (target == null || owner.getIFF(target)) {
-					currentTarget = null;
+				if (owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase newAttacker = owner.getMaidMasterEntity().getRevengeTarget();
+				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
 					return false;
 				}
+				this.attacker = newAttacker;
+				return true;
+			}
+			@Override
+			public void startExecuting() {
+				owner.setAttackTarget(this.attacker);
+				super.startExecuting();
+			}
+		});
+		
+		ltasks2[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
+			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
+			private int lastAttackTick = 0;
+			private EntityLivingBase targetToAttack;
 
-				if (target != currentTarget) {
-					currentTarget = target;
-					hitCount = 0;
-					lastAttackTick = 0;
-				}
+			@Override
+			public boolean shouldExecute() {
+				if (owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
+				
+				if (target == null || !target.isEntityAlive() || owner.getIFF(target)) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
-					hitCount++;
 					lastAttackTick = currentTick;
+					int id = target.getEntityId();
+					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
 				float missingHealth = target.getMaxHealth() - target.getHealth();
-				return missingHealth >= 10.0F || hitCount >= 6;
+				if (missingHealth >= 10.0F || hitCountMap.getOrDefault(target.getEntityId(), 0) >= 6) {
+					this.targetToAttack = target;
+					return true;
+				}
+				return false;
+			}
+
+			@Override
+			public void startExecuting() {
+				owner.setAttackTarget(this.targetToAttack);
+				super.startExecuting();
 			}
 		});
 
@@ -249,6 +275,15 @@ public class EntityMode_Archer extends EntityModeBase {
 	public boolean checkEntity(String pMode, Entity pEntity) {
 		if (!isInventoryArrowItem()) return false;
 		if (!MaidHelper.isTargetReachable(owner, pEntity, 18 * 18)) return false;
+		
+		//  苦力怕安全补丁（远程同样适用）
+		if (pEntity instanceof EntityCreeper) {
+			boolean attackingOwner = owner.getMaidMasterEntity() != null && owner.getMaidMasterEntity().equals(((EntityCreeper) pEntity).getAttackTarget());
+			boolean attackingMaid = pEntity.equals(owner.getRevengeTarget()) || owner.equals(((EntityCreeper)pEntity).getAttackTarget());
+			if (!attackingOwner && !attackingMaid) {
+				return false;
+			}
+		}
 		return !owner.getIFF(pEntity);
 	}
 
@@ -267,6 +302,26 @@ public class EntityMode_Archer extends EntityModeBase {
 		if (!isInventoryArrowItem()) {
 			owner.setAttackTarget(null);
 		}
+		
+		//  自动脱离未知生物坐骑
+        if (owner.isRiding()) {
+            Entity mount = owner.getRidingEntity();
+            if (mount instanceof EntityLivingBase) {
+                boolean isSafeMount = false;
+                if (mount instanceof net.minecraft.entity.passive.EntityTameable) {
+                    UUID tameOwner = ((net.minecraft.entity.passive.EntityTameable)mount).getOwnerId();
+                    if (tameOwner != null && tameOwner.equals(owner.getMaidMasterUUID())) isSafeMount = true;
+                } else if (mount instanceof net.minecraft.entity.passive.AbstractHorse) {
+                    UUID horseOwner = ((net.minecraft.entity.passive.AbstractHorse)mount).getOwnerUniqueId();
+                    if (horseOwner != null && horseOwner.equals(owner.getMaidMasterUUID())) isSafeMount = true;
+                }
+                
+                if (!isSafeMount) {
+                    owner.dismountRidingEntity();
+                }
+            }
+        }
+		
 		switch (pMode) {
 		case mmode_Archer:
 			break;
