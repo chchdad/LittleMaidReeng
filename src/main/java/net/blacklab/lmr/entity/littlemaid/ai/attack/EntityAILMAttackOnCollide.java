@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (终极横扫剑技完整版)
+ * メイドさんの直接攻撃系処理 (终极横扫剑技 + 超视距狂暴救驾完整版)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -32,7 +32,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected boolean isDashBuff = false; 
 	public boolean isGuard;
 
-	// 限制日志刷屏的计数器
+	// 🌟 狂暴距离补偿核心变量
+	protected int rescueBerserkTimer = 0;      // 狂暴持续时间（最高200）
+	protected int rescueBerserkCooldown = 0;   // 狂暴冷却时间（最高200）
+
 	private int logSpamLimiter = 0;
 
 	public EntityAILMAttackOnCollide(EntityLittleMaid par1EntityLittleMaid, float par2, boolean par3) {
@@ -83,7 +86,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public boolean shouldContinueExecuting() {
-		// 【ACT动作锁】如果是连招期间，或者【正在冲刺飞行中(isDashBuff)】，强制接管不准打断！
 		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || retreatTimer > 0 || isDashBuff) {
 			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) {
 				return true; 
@@ -124,6 +126,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		pendingBackstep = false;
 		pendingDash = false;
 		isDashBuff = false;
+
+		// 🌟 狂暴脱战惩罚：一旦目标丢失或死亡，立刻结束狂暴并进入 10 秒 CD
+		if (rescueBerserkTimer > 0) {
+			rescueBerserkTimer = 0;
+			rescueBerserkCooldown = 200;
+			System.out.println("[LMR-ATTACK-DEBUG] 目标丢失，狂暴强制中断，进入10秒冷却！");
+		}
 	}
 
 	@Override
@@ -136,12 +145,64 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
-		boolean isBerserk = theMaid.getHealth() <= theMaid.getMaxHealth() * 0.50F;
+
+		// =======================================================
+		// 1.距离补偿 + 10秒倒计时
+		// =======================================================
+		if (rescueBerserkCooldown > 0) {
+			rescueBerserkCooldown--;
+		}
+
+		if (rescueBerserkTimer > 0) {
+			rescueBerserkTimer--;
+			if (rescueBerserkTimer <= 0) {
+				rescueBerserkCooldown = 200; // 狂暴时间结束，立刻进入10秒CD
+				System.out.println("[LMR-ATTACK-DEBUG] 狂暴时间结束，解除狂暴并进入10秒冷却！");
+			} else if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 4 == 0) {
+				// 狂暴期间冒出愤怒的红心气泡特效
+				((net.minecraft.world.WorldServer)worldObj).spawnParticle(
+					net.minecraft.util.EnumParticleTypes.VILLAGER_ANGRY, 
+					theMaid.posX + (theMaid.getRNG().nextFloat()-0.5), 
+					theMaid.posY + 1.2D, 
+					theMaid.posZ + (theMaid.getRNG().nextFloat()-0.5), 
+					1, 0.2D, 0.2D, 0.2D, 0.0D
+				);
+			}
+		}
+
+		// 检测是否需要触发狂暴
+		if (rescueBerserkCooldown <= 0 && rescueBerserkTimer <= 0) {
+			Entity owner = theMaid.getMaidMasterEntity();
+			if (owner != null) {
+				// 判定：现在的目标是不是正在打主人的凶手
+				boolean isAttackingOwner = (owner.getRevengeTarget() == entityTarget) || 
+										   (entityTarget instanceof EntityLivingBase && ((EntityLivingBase)entityTarget).getAttackTarget() == owner);
+				
+				if (isAttackingOwner) {
+					double distSq = theMaid.getDistanceSq(entityTarget);
+					// 距离补偿触发点：距离大于10格 (10 * 10 = 100)
+					if (distSq >= 100.0D) { 
+						System.out.println("[LMR-ATTACK-DEBUG] 触发超视距救驾！女仆进入10秒狂暴突进！");
+						rescueBerserkTimer = 200; // 持续 10 秒
+						// 调用内置专属狂暴语音
+						theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true); 
+					}
+				}
+			}
+		}
+
+		// 融合原版半血狂暴与现在的距离狂暴，无缝调用 Bloodsuck (过载模式)
+		boolean isHealthBerserk = theMaid.getHealth() <= theMaid.getMaxHealth() * 0.50F;
+		boolean isRescueBerserk = this.rescueBerserkTimer > 0;
+		boolean isBerserk = isHealthBerserk || isRescueBerserk;
 		theMaid.setBloodsuck(isBerserk); 
 		
+		
+		// =======================================================
+		// 2. Dash 追击系统
+		// =======================================================
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
-				if (logSpamLimiter % 10 == 0) System.out.println("[LMR-ATTACK-DEBUG] [警告] DashBuff 被强制没收，女仆停留在原地！");
 				this.isDashBuff = false;
 				theMaid.hurtResistantTime = 0;
 			} else {
@@ -162,6 +223,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					System.out.println("[LMR-ATTACK-DEBUG] 触发吸附处决!");
 					theMaid.attackEntityAsMob(entityTarget);
 					
+					//  如果是在狂暴期间砍到目标，狂暴时间立刻砍半衰减为5秒！
+					if (rescueBerserkTimer > 100) {
+						System.out.println("[LMR-ATTACK-DEBUG] 狂暴状态下成功砍中目标，狂暴时间衰减至5秒！");
+						rescueBerserkTimer = 100;
+					}
+
 					this.isDashBuff = false;
 					theMaid.motionX = 0.0D;
 					theMaid.motionY = 0.0D;
@@ -185,7 +252,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					}
 					return; 
 				} else {
-					if (logSpamLimiter % 10 == 0) System.out.println("[LMR-ATTACK-DEBUG] [异常] DashBuff 激活中，但距离超过 10 格！强制重置 Buff！距离: " + distance);
 					this.isDashBuff = false;
 				}
 			}
@@ -197,11 +263,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
 			
-			// 【阶段一：原地霸体长蓄力】
 			if (pendingBackstep) {
 				theMaid.motionX = 0.0D;
 				theMaid.motionZ = 0.0D;
-				theMaid.motionY = -0.08D; // 施加标准重力，防止站在台阶边缘抽搐
+				theMaid.motionY = -0.08D; 
 				
 				this.isGuard = true; 
 				if (!theMaid.maidAvatar.isHandActive()) {
@@ -221,21 +286,17 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				}
 			}
 			
-			// 【阶段二：后撤步滑行期】
 			if (pendingDash) {
-				// 注意：这里绝对不能锁死 motion 让她保留后退的推力，自然往后滑行！
 				this.isGuard = true;
 				if (!theMaid.maidAvatar.isHandActive()) {
 					theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 				}
 			}
 			
-			// 倒计时结束，触发动作！
 			if (actionDelayTimer <= 0) {
 				if (pendingBackstep) {
 					pendingBackstep = false; 
 					
-					// 平滑向后推！
 					double dX = theMaid.posX - entityTarget.posX;
 					double dZ = theMaid.posZ - entityTarget.posZ;
 					double distance = Math.sqrt(dX * dX + dZ * dZ);
@@ -243,12 +304,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					if (distance >= 0.0001D) {
 						theMaid.motionX = (dX / distance) * 0.6D;
 						theMaid.motionZ = (dZ / distance) * 0.6D;
-						theMaid.motionY = 0.0D; // 保持贴地滑行
+						theMaid.motionY = 0.0D; 
 						theMaid.velocityChanged = true;
 					}
 					
 					pendingDash = true;
-					actionDelayTimer = 10; // 后撤滑行 0.5 秒 (10 Tick) 后立刻突刺
+					actionDelayTimer = 10; 
 				} 
 				else if (pendingDash) {
 					pendingDash = false;
@@ -277,14 +338,21 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 
 		// =======================================================
-		// 4. 寻路 (引入加速)
+		// 4. 寻路 (🌟 融合狂暴的高额移速系统)
 		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
 				rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
 				
 				double distToTarget = theMaid.getDistanceSq(entityTarget);
-				float burstSpeed = (distToTarget < 36.0D) ? moveSpeed * 1.5F : moveSpeed;
+				float burstSpeed = moveSpeed;
+				
+				if (isRescueBerserk) {
+					burstSpeed = moveSpeed * 1.8F; // 狂暴极速冲锋
+				} else if (distToTarget < 36.0D) {
+					burstSpeed = moveSpeed * 1.5F; // 原版贴身提速
+				}
+				
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
 			} else {
 				theMaid.setAttackTarget(null);
@@ -318,9 +386,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				System.out.println("[LMR-ATTACK-DEBUG] 转身锁定！贴脸瞬间出刀!");
 				theMaid.attackEntityAsMob(entityTarget); 
 				
-				// ===================================================
-				// ====== 剑技横扫 (在地面 + 手持剑) ======
-				// ===================================================
+				//  非冲刺贴脸时的平砍触发
+				if (rescueBerserkTimer > 100) {
+					System.out.println("[LMR-ATTACK-DEBUG] 狂暴状态下成功砍中目标，狂暴时间衰减至5秒！");
+					rescueBerserkTimer = 100;
+				}
+				
 				if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
 					worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, 
 						net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 
@@ -350,7 +421,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					Entity owner = theMaid.getMaidMasterEntity();
 
 					for (EntityLivingBase aoeTarget : list) {
-						// 静默，不打日志，不算角度
 						if (aoeTarget == theMaid || aoeTarget == entityTarget || aoeTarget == owner || theMaid.isOnSameTeam(aoeTarget)) {
 							continue;
 						}
@@ -373,21 +443,18 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							}
 						}
 					}
-				} // <--- 闭合横扫模块
+				}
 				
-				// ====== 连招起手判定 ======
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
 				if (theMaid.getRNG().nextFloat() < triggerChance) {
 					System.out.println("[LMR-ATTACK-DEBUG] 原地长蓄力开始...");
-					
-					// 蓄力时间延长25 tick，狂暴20 tick
 					this.actionDelayTimer = isBerserk ? 20 : 25; 
 					this.pendingBackstep = true; 
 				}
-			} // <--- 闭合 canSlashNow
-		} // <--- 闭合 currentDistSq <= attackRangeSq
+			} 
+		} 
 
-	} // <--- 这个大括号完美闭合了整个 updateTask 方法！
+	} 
 
 	@Override
 	public void setEnable(boolean pFlag) {
@@ -398,4 +465,4 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	public boolean getEnable() {
 		return fEnable;
 	}
-} // <--- 闭合整个 Class
+}
