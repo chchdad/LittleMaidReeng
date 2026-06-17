@@ -203,4 +203,6 @@ item.maid_contract.name=女僕的契約書
 item.maid_contract.info=來自村民的工作引薦
 message.lmr.souvenir.crush_warning=再次按Shift+右鍵 %s 次將銷毀紀念品！
 message.lmr.souvenir.crush_done=已銷毀女僕的紀念品
+message.lmreengaged.maid_safe_escape=§e[警告] §f%1$s的儲存蛋已被損毀，已自動放出相應女僕。當前位置: %2$s (%3$s, %4$s, %5$s)，且正在待命狀態。
+
 
