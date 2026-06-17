@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (终极横扫剑技 + 超视距狂暴救驾完整版)
+ * メイドさんの直接攻撃系処理 (终极横扫剑技 + 真·底层红温超视距救驾)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -74,7 +74,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void startExecuting() {
-		System.out.println("[LMR-ATTACK-DEBUG] >>> 开启攻击AI! 锁定目标: " + entityTarget.getName());
 		Entity lentity = theMaid.getAttackTarget();
 		if(!lentity.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
@@ -94,19 +93,16 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		Entity lentity = theMaid.getAttackTarget();
 		if (lentity == null || entityTarget != lentity || entityTarget.isDead || !entityTarget.isEntityAlive()) {
-			System.out.println("[LMR-ATTACK-DEBUG] --- 中断攻击AI: 目标丢失/死亡/对象变更");
 			resetTask();
 			return false;
 		}
 		
 		if (!MaidHelper.isTargetReachable(this.theMaid, lentity, 0.0D)) {
-			System.out.println("[LMR-ATTACK-DEBUG] --- 中断攻击AI: 目标不可达 (isTargetReachable = false)");
 			return false;
 		}
 
 		if (!isReroute) {
 			if (theMaid.getNavigator().noPath()) {
-				System.out.println("[LMR-ATTACK-DEBUG] --- 中断攻击AI: 寻路中断且不允许重新寻路 (noPath = true)");
 				return false;
 			}
 		}
@@ -116,7 +112,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void resetTask() {
-		System.out.println("[LMR-ATTACK-DEBUG] <<< 重置任务状态机清空!");
 		entityTarget = null;
 		theMaid.getNavigator().clearPath();
 		theMaid.setAttackTarget(null);
@@ -131,7 +126,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (rescueBerserkTimer > 0) {
 			rescueBerserkTimer = 0;
 			rescueBerserkCooldown = 200;
-			System.out.println("[LMR-ATTACK-DEBUG] 目标丢失，狂暴强制中断，进入10秒冷却！");
+			theMaid.maidOverDriveTime.setValue(0); // 强制关闭底层红温渲染
 		}
 	}
 
@@ -147,7 +142,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		// 1. 超视距救主狂暴系统 (距离补偿 + 10秒倒计时)
+		// 1.  红温超视距救主狂暴系统 (距离补偿 + 10秒倒计时)
 		// =======================================================
 		if (rescueBerserkCooldown > 0) {
 			rescueBerserkCooldown--;
@@ -155,18 +150,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		if (rescueBerserkTimer > 0) {
 			rescueBerserkTimer--;
+			
 			if (rescueBerserkTimer <= 0) {
 				rescueBerserkCooldown = 200; // 狂暴时间结束，立刻进入10秒CD
-				System.out.println("[LMR-ATTACK-DEBUG] 狂暴时间结束，解除狂暴并进入10秒冷却！");
-			} else if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 4 == 0) {
-				// 狂暴期间冒出愤怒的红心气泡特效
-				((net.minecraft.world.WorldServer)worldObj).spawnParticle(
-					net.minecraft.util.EnumParticleTypes.VILLAGER_ANGRY, 
-					theMaid.posX + (theMaid.getRNG().nextFloat()-0.5), 
-					theMaid.posY + 1.2D, 
-					theMaid.posZ + (theMaid.getRNG().nextFloat()-0.5), 
-					1, 0.2D, 0.2D, 0.2D, 0.0D
-				);
+				theMaid.maidOverDriveTime.setValue(0); // 强制关闭底层红温渲染
 			}
 		}
 
@@ -174,31 +161,27 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (rescueBerserkCooldown <= 0 && rescueBerserkTimer <= 0) {
 			Entity rawOwner = theMaid.getMaidMasterEntity();
 			
-			//  确保主人是活物 (EntityLivingBase) 才能取 RevengeTarget
 			if (rawOwner instanceof EntityLivingBase) {
 				EntityLivingBase owner = (EntityLivingBase) rawOwner;
 				
-				//  确保目标是具备 AI 的怪物 (EntityLiving) 才能取 AttackTarget
-				boolean targetIsAttackingOwner = (entityTarget instanceof net.minecraft.entity.EntityLiving) && 
-												 (((net.minecraft.entity.EntityLiving)entityTarget).getAttackTarget() == owner);
-												 
-				// 判定：现在的目标是不是正在打主人的凶手
-				boolean isAttackingOwner = (owner.getRevengeTarget() == entityTarget) || targetIsAttackingOwner;
+				// 只有真正打到主人（被登记为RevengeTarget）才算数
+				boolean isAttackingOwner = (owner.getRevengeTarget() == entityTarget);
 				
 				if (isAttackingOwner) {
 					double distSq = theMaid.getDistanceSq(entityTarget);
 					// 距离补偿触发点：距离大于10格 (10 * 10 = 100)
 					if (distSq >= 100.0D) { 
-						System.out.println("[LMR-ATTACK-DEBUG] 触发超视距救驾！女仆进入10秒狂暴突进！");
 						rescueBerserkTimer = 200; // 持续 10 秒
-						// 调用内置专属狂暴语音
+						// 激活底层真·红温开关！接管全部真实加成与身体发红渲染！
+						theMaid.maidOverDriveTime.setValue(200); 
+						// 狂暴语音
 						theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true); 
 					}
 				}
 			}
 		}
 
-		// 融合原版半血狂暴与现在的距离狂暴，无缝调用 Bloodsuck (过载模式)
+		// 融合原版半血狂暴与现在的距离狂暴，无缝调用 Bloodsuck (过载模式，红眼特效)
 		boolean isHealthBerserk = theMaid.getHealth() <= theMaid.getMaxHealth() * 0.50F;
 		boolean isRescueBerserk = this.rescueBerserkTimer > 0;
 		boolean isBerserk = isHealthBerserk || isRescueBerserk;
@@ -206,7 +189,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		
 		
 		// =======================================================
-		// 2. Dash 追击
+		// 2. Dash 追击系统
 		// =======================================================
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
@@ -227,13 +210,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					return; 
 				} 
 				else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D, 0.8D, 0.8D).intersects(entityTarget.getEntityBoundingBox())) {
-					System.out.println("[LMR-ATTACK-DEBUG] 触发吸附处决!");
 					theMaid.attackEntityAsMob(entityTarget);
 					
-					// 如果是在狂暴期间砍到目标，狂暴时间立刻砍半衰减为5秒！
+					// 狂暴救驾成功判定：冲刺命中目标，衰减至5秒
 					if (rescueBerserkTimer > 100) {
-						System.out.println("[LMR-ATTACK-DEBUG] 狂暴状态下成功砍中目标，狂暴时间衰减至5秒！");
 						rescueBerserkTimer = 100;
+						theMaid.maidOverDriveTime.setValue(100); // 同步削减底层红温剩余时间
 					}
 
 					this.isDashBuff = false;
@@ -265,7 +247,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 3. FSM 连招 (长蓄力 -> 物理后撤 -> 拔刀突刺)
+		// 3. FSM 连招 (长蓄力 -> 旧版物理后撤 -> 拔刀突刺)
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
@@ -345,7 +327,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 
 		// =======================================================
-		// 4. 寻路 ( 狂暴的高额移速)
+		// 4. 寻路 (狂暴的高额移速系统)
 		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
@@ -390,13 +372,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			boolean canSlashNow = (ld >= -0.35D) && theMaid.getSwingStatusDominant().canAttack();
 
 			if (canSlashNow) {
-				System.out.println("[LMR-ATTACK-DEBUG] 转身锁定！贴脸瞬间出刀!");
 				theMaid.attackEntityAsMob(entityTarget); 
 				
-				// 狂暴救驾成功判定
+				//  狂暴救驾成功判定
 				if (rescueBerserkTimer > 100) {
-					System.out.println("[LMR-ATTACK-DEBUG] 狂暴状态下成功砍中目标，狂暴时间衰减至5秒！");
 					rescueBerserkTimer = 100;
+					theMaid.maidOverDriveTime.setValue(100); // 同步削减底层红温剩余时间
 				}
 				
 				if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
@@ -444,7 +425,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						if (distanceXY > 0.0001D) {
 							double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
 							if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
-								System.out.println("[LMR-SWEEP-DETAIL]  扇形/贴脸判定通过！处决波及: " + aoeTarget.getName());
 								aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
 								aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
 							}
@@ -454,7 +434,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
 				if (theMaid.getRNG().nextFloat() < triggerChance) {
-					System.out.println("[LMR-ATTACK-DEBUG] 原地长蓄力开始...");
 					this.actionDelayTimer = isBerserk ? 20 : 25; 
 					this.pendingBackstep = true; 
 				}
