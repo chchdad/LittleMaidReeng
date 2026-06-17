@@ -79,7 +79,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 			}
 		});
 
-		// 🌟 核心升级：带有攻击次数与伤害双阈值评估的集火 AI
+		//  带有攻击次数与伤害双阈值评估的集火 AI
 		ltasks[1].addTask(2, new EntityAIOwnerHurtTarget(owner) {
 			private EntityLivingBase currentTarget = null;
 			private int hitCount = 0;
@@ -95,14 +95,14 @@ public class EntityMode_Fencer extends EntityModeBase {
 					return false;
 				}
 
-				// 如果主人换了攻击目标，计数器清零重新评估
+				// 如果换了攻击目标，计数器清零重新评估
 				if (target != currentTarget) {
 					currentTarget = target;
 					hitCount = 0;
 					lastAttackTick = 0;
 				}
 
-				// 精准捕捉主人的实际攻击动作，防止每 tick 循环重复计次
+				// 捕捉实际攻击动作，防止每 tick 循环重复计次
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
 					hitCount++;
@@ -111,7 +111,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 
 				float missingHealth = target.getMaxHealth() - target.getHealth();
 				
-				// 触发条件：伤害达 10 点，或者虽然没到 10 点但是主人执着地敲了 6 次以上
+				// 伤害达 10 点，或者虽然没到 10 点但是敲了 6 次以上
 				return missingHealth >= 10.0F || hitCount >= 6;
 			}
 		});
