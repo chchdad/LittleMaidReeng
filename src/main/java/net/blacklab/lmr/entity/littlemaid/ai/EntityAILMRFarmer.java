@@ -47,6 +47,11 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private long lastCheckTime = 0;
     private int ownerStopTicks = 0;
 
+    //巡逻死锁解决的相关计时变量
+    private long nextPatrolYieldTime = 0;
+    private int consecutivePatrolYields = 0;
+    private long lastPatrolYieldTime = 0;
+
     public EntityAILMRFarmer(EntityLittleMaid entityMaid, double speedIn) {
         super(entityMaid, speedIn, 16);
         this.maid = entityMaid;
@@ -152,7 +157,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 }
             }
         } else {
-            //  解除巡逻必须自由模式的限制，只要在农田周围没活干就随机漫步
             List<BlockPos> patrolTargets = new ArrayList<>();
             for (int x = -16; x <= 16; x++) {
                 for (int y = -2; y <= 2; y++) {
@@ -174,7 +178,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             
             if (!patrolTargets.isEmpty()) {
                 BlockPos baseTarget = patrolTargets.get(maid.getRNG().nextInt(patrolTargets.size()));
-                //  巡逻点增加随机偏移（附近几格），防止死板地踩在同一个格子上
                 BlockPos target = baseTarget.add(maid.getRNG().nextInt(5) - 2, 0, maid.getRNG().nextInt(5) - 2);
                 
                 net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
@@ -352,18 +355,41 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
         double myDistToTarget = maid.getDistanceSqToCenter(this.destinationBlock);
 
-        //  干活避让 + 巡逻防扎堆 
+        //  干活避让 + 巡逻防扎堆死锁
         if (!this.ignoreColleagues && (this.isPatrolling || myDistToTarget > 9.0D)) {
             java.util.List<EntityLittleMaid> nearbyMaids = maid.getEntityWorld().getEntitiesWithinAABB(
                 EntityLittleMaid.class, 
-                maid.getEntityBoundingBox().grow(2.0D, 1.0D, 2.0D) // 探测周围两三格范围内的同事
+                maid.getEntityBoundingBox().grow(2.0D, 1.0D, 2.0D)
             );
             
             for (EntityLittleMaid otherMaid : nearbyMaids) {
                 if (otherMaid != maid && otherMaid.getMaidModeString().equals(EntityMode_Farmer.mmode_Farmer)) {
                     
                     if (this.isPatrolling) {
-                        // 巡逻社交距离：没活干正在溜达时，发现旁边有自己人，直接停止并在几秒后换个方向散步
+                        long currentTime = maid.getEntityWorld().getTotalWorldTime();
+                        
+                        // 1. 处于 30 秒“霸体”冷却期内，直接无视同事继续巡逻，不触发重新寻路
+                        if (currentTime < this.nextPatrolYieldTime) {
+                            continue; 
+                        }
+                        
+                        // 2. 如果距离上次避让已经过去超过 10 秒，重置连击次数
+                        if (currentTime - this.lastPatrolYieldTime > 200) {
+                            this.consecutivePatrolYields = 0;
+                        }
+                        
+                        this.consecutivePatrolYields++;
+                        this.lastPatrolYieldTime = currentTime;
+                        
+                        // 3. 如果短时间内连续触发了 3 次避让
+                        if (this.consecutivePatrolYields >= 3) {
+                            // 触发 30 秒（600 tick）的无视冷却期
+                            this.nextPatrolYieldTime = currentTime + 600;
+                            this.consecutivePatrolYields = 0;
+                            continue; // 这一次直接硬穿过去，打破死锁
+                        }
+
+                        // 正常的巡逻社交距离避让
                         this.actionCompleted = true; 
                         maid.getNavigator().clearPath(); 
                         this.actionCooldown = 20 + maid.getRNG().nextInt(20); 
@@ -469,7 +495,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 }
             }
 
-            //  正常工作时低头看地，巡逻漫步时不强行扭转头部视角
             if (!this.isPatrolling) {
                 this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
             }
