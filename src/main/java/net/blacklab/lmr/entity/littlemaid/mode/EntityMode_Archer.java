@@ -32,10 +32,10 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 
-/**
- * 弓士メイドさん
- *
- */
+import net.minecraft.entity.ai.EntityAIOwnerHurtByTarget;
+import net.minecraft.entity.ai.EntityAIOwnerHurtTarget;
+import net.minecraft.entity.monster.IMob;
+
 public class EntityMode_Archer extends EntityModeBase {
 
 	public static final String mmode_Archer			= "Archer";
@@ -44,12 +44,8 @@ public class EntityMode_Archer extends EntityModeBase {
 	public static final String mtrigger_Bow			= "Archer:Bow";
 	public static final String mtrigger_Arrow		= "Archer:Arrow";
 	
-	/** 矢（弾丸）と判断するクラス */
 	public static final List<Class <? extends Item>> arrowClassList = initArrowClassList();
 	
-	/**
-	 * 矢（弾丸）クラスリスト初期化
-	 */
 	public static List<Class <? extends Item>> initArrowClassList() {
 		List<Class <? extends Item>> list = new ArrayList<>();
 		list.add(ItemArrow.class);
@@ -74,44 +70,117 @@ public class EntityMode_Archer extends EntityModeBase {
 
 	@Override
 	public void addEntityMode(EntityAITasks pDefaultMove, EntityAITasks pDefaultTargeting) {
-		// Archer:0x0083
 		EntityAITasks[] ltasks = new EntityAITasks[2];
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
-//		ltasks[1].addTask(1, new EntityAIOwnerHurtByTarget(owner));
-//		ltasks[1].addTask(2, new EntityAIOwnerHurtTarget(owner));
-		ltasks[1].addTask(1, new EntityAILMHurtByTarget(owner, true));
-		ltasks[1].addTask(2, new EntityAILMNearestAttackableTarget<EntityLivingBase>(owner, EntityLivingBase.class, 0, true));
+		ltasks[1].addTask(1, new EntityAIOwnerHurtByTarget(owner) {
+			@Override
+			public boolean shouldExecute() {
+				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase target = owner.getMaidMasterEntity().getRevengeTarget();
+				return target != null && !owner.getIFF(target) && (target instanceof IMob);
+			}
+		});
+		
+		// 带有双重阈值评估的集火 AI (射手同样适用)
+		ltasks[1].addTask(2, new EntityAIOwnerHurtTarget(owner) {
+			private EntityLivingBase currentTarget = null;
+			private int hitCount = 0;
+			private int lastAttackTick = 0;
 
+			@Override
+			public boolean shouldExecute() {
+				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
+				
+				if (target == null || owner.getIFF(target)) {
+					currentTarget = null;
+					return false;
+				}
+
+				if (target != currentTarget) {
+					currentTarget = target;
+					hitCount = 0;
+					lastAttackTick = 0;
+				}
+
+				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
+				if (currentTick != lastAttackTick) {
+					hitCount++;
+					lastAttackTick = currentTick;
+				}
+
+				float missingHealth = target.getMaxHealth() - target.getHealth();
+				return missingHealth >= 10.0F || hitCount >= 6;
+			}
+		});
+
+		ltasks[1].addTask(3, new EntityAILMHurtByTarget(owner, true));
+		ltasks[1].addTask(4, new EntityAILMNearestAttackableTarget<EntityLivingBase>(owner, EntityLivingBase.class, 0, true));
 		owner.addMaidMode(mmode_Archer, ltasks);
 
-		// Blazingstar:0x00c3
+
 		EntityAITasks[] ltasks2 = new EntityAITasks[2];
 		ltasks2[0] = pDefaultMove;
 		ltasks2[1] = new EntityAITasks(owner.aiProfiler);
 
-		ltasks2[1].addTask(1, new EntityAILMHurtByTarget(owner, true));
-		ltasks2[1].addTask(2, new EntityAILMNearestAttackableTarget<EntityLivingBase>(owner, EntityLivingBase.class, 0, true));
+		ltasks2[1].addTask(1, new EntityAIOwnerHurtByTarget(owner) {
+			@Override
+			public boolean shouldExecute() {
+				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase target = owner.getMaidMasterEntity().getRevengeTarget();
+				return target != null && !owner.getIFF(target) && (target instanceof IMob);
+			}
+		});
+		ltasks2[1].addTask(2, new EntityAIOwnerHurtTarget(owner) {
+			private EntityLivingBase currentTarget = null;
+			private int hitCount = 0;
+			private int lastAttackTick = 0;
 
+			@Override
+			public boolean shouldExecute() {
+				if (!super.shouldExecute() || owner.getMaidMasterEntity() == null) return false;
+				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
+				
+				if (target == null || owner.getIFF(target)) {
+					currentTarget = null;
+					return false;
+				}
+
+				if (target != currentTarget) {
+					currentTarget = target;
+					hitCount = 0;
+					lastAttackTick = 0;
+				}
+
+				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
+				if (currentTick != lastAttackTick) {
+					hitCount++;
+					lastAttackTick = currentTick;
+				}
+
+				float missingHealth = target.getMaxHealth() - target.getHealth();
+				return missingHealth >= 10.0F || hitCount >= 6;
+			}
+		});
+
+		ltasks[1].addTask(3, new EntityAILMHurtByTarget(owner, true));
+		ltasks[1].addTask(4, new EntityAILMNearestAttackableTarget<EntityLivingBase>(owner, EntityLivingBase.class, 0, true));
 		owner.addMaidMode(mmode_Blazingstar, ltasks2);
 	}
 
 	@Override
 	public boolean changeMode(EntityPlayer pentityplayer) {
 		ItemStack litemstack = owner.getHandSlotForModeChange();
-
 		if (!litemstack.isEmpty()) {
 			Item item = litemstack.getItem();
-			
 			if (owner.getModeTrigger().isTriggerable(mtrigger_Bow, item, item instanceof ItemBow)) {
 				if (owner.maidInventory.getInventorySlotContainItem(ItemFlintAndSteel.class) > -1) {
 					owner.setMaidMode(mmode_Blazingstar);
-					//進捗
 					AchievementsLMRE.grantAC(pentityplayer, AC.BlazingStar);
 				} else {
 					owner.setMaidMode(mmode_Archer);
-					//進捗
 					AchievementsLMRE.grantAC(pentityplayer, AC.Archer);
 				}
 				return true;
@@ -134,58 +203,41 @@ public class EntityMode_Archer extends EntityModeBase {
 			owner.setBloodsuck(true);
 			return true;
 		}
-
 		return false;
 	}
 
 	@Override
 	public int getNextEquipItem(String pMode) {
 		int li;
-		if ((li = super.getNextEquipItem(pMode)) >= 0) {
-			return li;
-		}
-
+		if ((li = super.getNextEquipItem(pMode)) >= 0) return li;
 		ItemStack litemstack;
-
-		// モードに応じた識別判定、速度優先
 		switch (pMode) {
 		case mmode_Archer :
 		case mmode_Blazingstar :
-			// Except off hand slot
 			for (li = 0; li < owner.maidInventory.getSizeInventory() - 1; li++) {
 				litemstack = owner.maidInventory.getStackInSlot(li);
 				if (litemstack.isEmpty()) continue;
-
-				// 射手
 				if (isTriggerItem(pMode, litemstack)) {
 					return li;
 				}
 			}
 			break;
 		}
-
 		return -1;
 	}
 
 	@Override
 	protected boolean isTriggerItem(String pMode, ItemStack par1ItemStack) {
-		if (par1ItemStack.isEmpty()) {
-			return false;
-		}
-		
+		if (par1ItemStack.isEmpty()) return false;
 		Item item = par1ItemStack.getItem();
 		return owner.getModeTrigger().isTriggerable(mtrigger_Bow, item, item instanceof ItemBow);
 	}
 
 	@Override
 	public boolean checkItemStack(ItemStack pItemStack) {
-		if (pItemStack.isEmpty()) {
-			return false;
-		}
-		
+		if (pItemStack.isEmpty()) return false;
 		Item item = pItemStack.getItem();
-		return owner.getModeTrigger().isTriggerable(mtrigger_Bow, item, item instanceof ItemBow)
-				/* || TriggerSelect.checkTrigger(ls, "Bow", pItemStack.getItem())*/;
+		return owner.getModeTrigger().isTriggerable(mtrigger_Bow, item, item instanceof ItemBow);
 	}
 
 	@Override
@@ -197,7 +249,6 @@ public class EntityMode_Archer extends EntityModeBase {
 	public boolean checkEntity(String pMode, Entity pEntity) {
 		if (!isInventoryArrowItem()) return false;
 		if (!MaidHelper.isTargetReachable(owner, pEntity, 18 * 18)) return false;
-
 		return !owner.getIFF(pEntity);
 	}
 
@@ -207,9 +258,7 @@ public class EntityMode_Archer extends EntityModeBase {
 		case mmode_Archer:
 		case mmode_Blazingstar:
 			this.getWeaponStatus();
-//			updateGuns();
 		}
-
 	}
 
 	@SuppressWarnings("deprecation")
@@ -218,26 +267,18 @@ public class EntityMode_Archer extends EntityModeBase {
 		if (!isInventoryArrowItem()) {
 			owner.setAttackTarget(null);
 		}
-
 		switch (pMode) {
 		case mmode_Archer:
-//			owner.getWeaponStatus();
-//			updateGuns();
 			break;
 		case mmode_Blazingstar:
-//			owner.getWeaponStatus();
-//			updateGuns();
-			// Blazingstarの特殊効果
 			World lworld = owner.getEntityWorld();
 			List<Entity> llist = lworld.getEntitiesWithinAABB(Entity.class, owner.getEntityBoundingBox().grow(16D, 16D, 16D));
 			for (int li = 0; li < llist.size(); li++) {
 				Entity lentity = llist.get(li);
 				if (lentity.isEntityAlive() && lentity.isBurning() && owner.getRNG().nextFloat() > 0.9F) {
-					// 発火！
 					int lx = (int)owner.posX;
 					int ly = (int)owner.posY;
 					int lz = (int)owner.posZ;
-
 					IBlockState iState;
 					if (lworld.isAirBlock(new BlockPos(lx, ly, lz)) || (iState = lworld.getBlockState(new BlockPos(lx, ly, lz))).getBlock().getMaterial(iState).getCanBurn()) {
 						lworld.playSound(lx + 0.5D, ly + 0.5D, lz + 0.5D, SoundEvent.REGISTRY.getObject(new ResourceLocation("item.firecharge.use")), SoundCategory.NEUTRAL, 1.0F, owner.getRNG().nextFloat() * 0.4F + 0.8F, false);
@@ -247,33 +288,6 @@ public class EntityMode_Archer extends EntityModeBase {
 			}
 		}
 	}
-
-//	protected void updateGuns() {
-//		if (owner.getAttackTarget() == null || !owner.getAttackTarget().isEntityAlive()) {
-//			// 対象が死んだ
-//			if (!owner.weaponReload) {
-//				if (owner.maidAvatar.isHandActive()) {
-//					// ターゲットが死んでいる時はアイテムの使用をクリア
-////					if (owner.getAvatarIF().getIsItemReload()) {
-//						owner.maidAvatar.stopActiveHand();
-////						LittleMaidReengaged.Debug(String.format("id:%d cancel reload.", owner.getEntityId()));
-////					} else {
-////						owner.maidAvatar.clearItemInUse();
-//						LittleMaidReengaged.Debug(String.format("id:%d clear.", owner.getEntityId()));
-////					}
-//				}
-//			} else {
-//				owner.mstatAimeBow = true;
-//			}
-//		}
-//		if (owner.weaponReload && !owner.maidAvatar.isHandActive()) {
-//			// 特殊リロード
-//			owner.maidInventory.getCurrentItem().useItemRightClick(owner.getEntityWorld(), owner.maidAvatar, EnumHand.MAIN_HAND);
-//			LittleMaidReengaged.Debug("id:%d force reload.", owner.getEntityId());
-//			owner.mstatAimeBow = true;
-//		}
-//
-//	}
 
 	@Override
 	public double getDistanceToSearchTargets() {
@@ -290,92 +304,52 @@ public class EntityMode_Archer extends EntityModeBase {
 		return 21 * 21;
 	}
 	
-	/**
-	 * 対象アイテムが矢判定か確認する
-	 */
 	private boolean isInventoryArrowItem() {
-		
-		//矢(弾丸)ｸﾗｽ判定
 		for (Class<? extends Item> classItem : arrowClassList) {
-			if (!(owner.maidInventory.getInventorySlotContainItem(classItem) < 0)) {
-				return true;
-			}
+			if (!(owner.maidInventory.getInventorySlotContainItem(classItem) < 0)) return true;
 		}
-		
-		//ItemIdで判定
 		for (int j = 0; j < owner.maidInventory.getSizeInventory(); j++) {
-			if (LMRConfig.isCfgArrowItemStack(owner.maidInventory.getStackInSlot(j))) {
-				return true;
-			}
+			if (LMRConfig.isCfgArrowItemStack(owner.maidInventory.getStackInSlot(j))) return true;
 		}
 		return false;
 	}
 	
-	/**
-	 * ターゲットをノックバックする
-	 */
 	@Override
 	public boolean attackEntityAsMob(String pMode, Entity targetEntity) {
-		
 		if (!mmode_Archer.equals(pMode)) return false;
-		
 		float knockBackLevel = 2.5F;
-		
-		// 弓の特殊攻撃
-		if (targetEntity instanceof EntityLivingBase)
-        {
+		if (targetEntity instanceof EntityLivingBase) {
             ((EntityLivingBase)targetEntity).knockBack(
             		this.owner, 
             		(float)knockBackLevel * 0.5F, 
             		(double)MathHelper.sin(this.owner.rotationYaw * 0.017453292F), 
             		(double)(-MathHelper.cos(this.owner.rotationYaw * 0.017453292F)));
-        }
-        else
-        {
+        } else {
             targetEntity.addVelocity(
             		(double)(-MathHelper.sin(this.owner.rotationYaw * 0.017453292F) * (float)knockBackLevel * 0.5F), 
             		0.1D, 
             		(double)(MathHelper.cos(this.owner.rotationYaw * 0.017453292F) * (float)knockBackLevel * 0.5F));
         }
-		
 		this.owner.playSound("entity.player.attack.knockback");
-		
 		this.owner.setAttackTarget(null);
-		
 		return true;
 	}
 	
-	
-	public boolean weaponFullAuto;	// 装備がフルオート武器かどうか
-	public boolean weaponReload;	// 装備がリロードを欲しているかどうか
+	public boolean weaponFullAuto;
+	public boolean weaponReload;
 
-	/**
-	 * 対応型射撃武器のリロード判定
-	 */
 	public void getWeaponStatus() {
-		
 		weaponFullAuto = false;
 		weaponReload = false;
-		
-		// 飛び道具用の特殊処理
 		ItemStack is = this.owner.maidInventory.getCurrentItem();
 		if (is.isEmpty()) return;
-
 		try {
 			Method me = is.getItem().getClass().getMethod("isWeaponReload", ItemStack.class, EntityPlayer.class);
 			weaponReload = (Boolean)me.invoke(is.getItem(), is, this.owner.maidAvatar);
-		}catch (NoClassDefFoundError e) {
-		} catch (NoSuchMethodException e) {
-		} catch (Exception e) {
-		}
-
+		}catch (Exception e) {}
 		try {
 			Method me = is.getItem().getClass().getMethod("isWeaponFullAuto", ItemStack.class);
 			weaponFullAuto = (Boolean)me.invoke(is.getItem(), is);
-		}catch (NoClassDefFoundError e) {
-		} catch (NoSuchMethodException e) {
-		} catch (Exception e) {
-		}
+		}catch (Exception e) {}
 	}
-
 }
