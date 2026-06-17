@@ -94,7 +94,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 for (int z = -range; z <= range; z++) {
                     BlockPos pos = center.add(x, y, z);
                     
-                    // 如果该区块未加载，不去强行读取
                     if (!world.isBlockLoaded(pos)) {
                         continue;
                     }
@@ -152,14 +151,14 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     }
                 }
             }
-        } else if (maid.isFreedom()) {
+        } else {
+            //  解除巡逻必须自由模式的限制，只要在农田周围没活干就随机漫步
             List<BlockPos> patrolTargets = new ArrayList<>();
             for (int x = -16; x <= 16; x++) {
                 for (int y = -2; y <= 2; y++) {
                     for (int z = -16; z <= 16; z++) {
                         BlockPos pos = center.add(x, y, z);
                         
-                        //  巡逻时同样加入区块保护！
                         if (!world.isBlockLoaded(pos)) continue;
                         
                         Block block = world.getBlockState(pos).getBlock();
@@ -174,11 +173,14 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
             }
             
             if (!patrolTargets.isEmpty()) {
-                BlockPos target = patrolTargets.get(maid.getRNG().nextInt(patrolTargets.size()));
+                BlockPos baseTarget = patrolTargets.get(maid.getRNG().nextInt(patrolTargets.size()));
+                //  巡逻点增加随机偏移（附近几格），防止死板地踩在同一个格子上
+                BlockPos target = baseTarget.add(maid.getRNG().nextInt(5) - 2, 0, maid.getRNG().nextInt(5) - 2);
+                
                 net.minecraft.pathfinding.Path path = maid.getNavigator().getPathToPos(target.up());
                 if (path != null) {
                     net.minecraft.pathfinding.PathPoint endPoint = path.getFinalPathPoint();
-                    if (endPoint != null && target.distanceSq(endPoint.x, endPoint.y, endPoint.z) <= 4.0D) {
+                    if (endPoint != null && target.distanceSq(endPoint.x, endPoint.y, endPoint.z) <= 9.0D) {
                         this.destinationBlock = target;
                         this.isPatrolling = true; 
                         maid.getNavigator().setPath(path, this.moveSpeed * 0.7D); 
@@ -301,7 +303,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     for (int z = -16; z <= 16; z++) {
                         BlockPos pos = center.add(x, y, z);
                         
-                        //  余光扫描加入区块保护
                         if (!world.isBlockLoaded(pos)) continue;
                         
                         IBlockState state = world.getBlockState(pos);
@@ -351,28 +352,39 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
 
         double myDistToTarget = maid.getDistanceSqToCenter(this.destinationBlock);
 
-        if (!this.isPatrolling && !this.ignoreColleagues && myDistToTarget > 9.0D) {
+        //  干活避让 + 巡逻防扎堆 
+        if (!this.ignoreColleagues && (this.isPatrolling || myDistToTarget > 9.0D)) {
             java.util.List<EntityLittleMaid> nearbyMaids = maid.getEntityWorld().getEntitiesWithinAABB(
                 EntityLittleMaid.class, 
-                maid.getEntityBoundingBox().grow(2.0D, 1.0D, 2.0D) 
+                maid.getEntityBoundingBox().grow(2.0D, 1.0D, 2.0D) // 探测周围两三格范围内的同事
             );
             
             for (EntityLittleMaid otherMaid : nearbyMaids) {
                 if (otherMaid != maid && otherMaid.getMaidModeString().equals(EntityMode_Farmer.mmode_Farmer)) {
-                    double otherDistToTarget = otherMaid.getDistanceSqToCenter(this.destinationBlock);
-                    boolean shouldYield = (otherDistToTarget < myDistToTarget) || 
-                                          (Math.abs(otherDistToTarget - myDistToTarget) < 0.1D && otherMaid.getEntityId() < maid.getEntityId());
-
-                    if (shouldYield) {
-                        this.blacklistedTarget = this.destinationBlock;
-                        this.blacklistEndTime = maid.getEntityWorld().getTotalWorldTime() + 60;
-                        
+                    
+                    if (this.isPatrolling) {
+                        // 巡逻社交距离：没活干正在溜达时，发现旁边有自己人，直接停止并在几秒后换个方向散步
                         this.actionCompleted = true; 
                         maid.getNavigator().clearPath(); 
-                        this.actionCooldown = 5; 
-                        
-                        this.ignoreColleagues = true; 
+                        this.actionCooldown = 20 + maid.getRNG().nextInt(20); 
                         return; 
+                    } else {
+                        // 抢活避让逻辑
+                        double otherDistToTarget = otherMaid.getDistanceSqToCenter(this.destinationBlock);
+                        boolean shouldYield = (otherDistToTarget < myDistToTarget) || 
+                                              (Math.abs(otherDistToTarget - myDistToTarget) < 0.1D && otherMaid.getEntityId() < maid.getEntityId());
+
+                        if (shouldYield) {
+                            this.blacklistedTarget = this.destinationBlock;
+                            this.blacklistEndTime = maid.getEntityWorld().getTotalWorldTime() + 60;
+                            
+                            this.actionCompleted = true; 
+                            maid.getNavigator().clearPath(); 
+                            this.actionCooldown = 5; 
+                            
+                            this.ignoreColleagues = true; 
+                            return; 
+                        }
                     }
                 }
             }
@@ -387,13 +399,11 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         if (myDistToTarget < 4.5D) {
             if (this.isPatrolling) {
                 maid.getNavigator().clearPath();
-                // 巡逻看风景的硬直
                 this.actionCooldown = 40 + maid.getRNG().nextInt(40);
             } else {
                 executeAction();
                 maid.getNavigator().clearPath();
                 
-                // 将原来的 1~3 秒硬直，降低为 0.25秒~0.75秒
                 this.actionCooldown = 5 + maid.getRNG().nextInt(10);
                 this.ignoreColleagues = false; 
             }
@@ -420,7 +430,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                     for (int fx = -1; fx <= 1; fx++) {
                         for (int fz = -1; fz <= 1; fz++) {
                             BlockPos checkPos = new BlockPos(maid).add(fx, 0, fz);
-                            //  安全锁
                             if (!maid.getEntityWorld().isBlockLoaded(checkPos)) continue;
                             
                             Block b = maid.getEntityWorld().getBlockState(checkPos).getBlock();
@@ -452,7 +461,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                             executeAction(); 
                             maid.getNavigator().clearPath();
                             
-                            // 强行收割完的硬直也大幅降低
                             this.actionCooldown = 5 + maid.getRNG().nextInt(10);
                             this.ignoreColleagues = false; 
                         }
@@ -461,7 +469,10 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
                 }
             }
 
-            this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
+            //  正常工作时低头看地，巡逻漫步时不强行扭转头部视角
+            if (!this.isPatrolling) {
+                this.maid.getLookHelper().setLookPosition(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, 10.0F, this.maid.getVerticalFaceSpeed());
+            }
             
             if (maid.getNavigator().noPath()) {
                 maid.getNavigator().tryMoveToXYZ(this.destinationBlock.getX() + 0.5D, this.destinationBlock.getY() + 1, this.destinationBlock.getZ() + 0.5D, this.moveSpeed);
@@ -473,7 +484,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
         World world = maid.getEntityWorld();
         BlockPos pos = this.destinationBlock;
         
-        //  确保目标区块在线
         if (!world.isBlockLoaded(pos)) return;
         
         IBlockState state = world.getBlockState(pos);
@@ -551,7 +561,6 @@ public class EntityAILMRFarmer extends EntityAIMoveToBlock {
     private boolean isBlockWatered(World world, BlockPos pos) {
         int radius = 4;
         for (BlockPos.MutableBlockPos mutablePos : BlockPos.getAllInBoxMutable(pos.add(-radius, 0, -radius), pos.add(radius, 1, radius))) {
-            //  水源扫描也要加锁
             if (world.isBlockLoaded(mutablePos) && world.getBlockState(mutablePos).getMaterial() == Material.WATER) {
                 return true;
             }
