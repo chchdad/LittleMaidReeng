@@ -71,7 +71,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
-		//  优先1先解决离主人近的怪！
+		// 优先级 1：先解决离主人近的怪！(半径4格危险距离)
 		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			@Override
 			public boolean shouldExecute() {
@@ -79,14 +79,12 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (!(rawMaster instanceof EntityLivingBase)) return false;
 				EntityLivingBase master = (EntityLivingBase) rawMaster;
 
-				// 1. 如果主人刚刚被打了，立刻锁定凶手
 				EntityLivingBase attacker = master.getRevengeTarget();
 				if (attacker != null && attacker.isEntityAlive() && !owner.getIFF(attacker) && (attacker instanceof IMob)) {
 					this.target = attacker;
 					return true;
 				}
 
-				// 2. 检查极度危险的近身怪 (4格内，且正在瞄准主人的怪物)
 				List<EntityLivingBase> closeEnemies = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(4.0D, 3.0D, 4.0D));
 				EntityLivingBase closestThreat = null;
 				double minDist = Double.MAX_VALUE;
@@ -114,7 +112,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 			}
 		});
 
-		// 优先级 2：全类型伤害追踪
+		//  优先级 2：64格+伤害追踪
 		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private java.util.Map<Integer, Float> healthMap = new java.util.HashMap<>();
@@ -125,7 +123,8 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (!(rawMaster instanceof EntityLivingBase)) return false;
 				EntityLivingBase master = (EntityLivingBase) rawMaster;
 
-				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(24.0D, 12.0D, 24.0D));
+				//  64格大范围扫描
+				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(64.0D, 32.0D, 64.0D));
 
 				EntityLivingBase bestTarget = null;
 				double closestDist = Double.MAX_VALUE;
@@ -133,7 +132,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 				for (EntityLivingBase entity : list) {
 					if (!entity.isEntityAlive()) continue;
 
-					// 是否在追杀玩家 (AttackTarget) 或者 被玩家打了 (RevengeTarget)
 					boolean isChasing = (entity instanceof net.minecraft.entity.EntityLiving && ((net.minecraft.entity.EntityLiving)entity).getAttackTarget() == master);
 					boolean isRevenge = (entity.getRevengeTarget() == master);
 
@@ -145,7 +143,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 						if (lastHealth == null) {
 							healthMap.put(id, currentHealth);
 						} else if (currentHealth < lastHealth) {
-							//  只要它掉血了，且它觉得是主人干的 (RevengeTarget是主人)，就算作全类型攻击一次！
+							//  只要目标对主人的仇恨在，且掉血了，算作集火计数
 							if (isRevenge) {
 								hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 							}
@@ -159,7 +157,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 						boolean isFriendly = owner.getIFF(entity);
 
 						if (isFriendly) {
-							// 友军防误伤：必须硬吃 6 次全类型伤害
 							if (hits >= 6) {
 								double dist = entity.getDistanceSq(master);
 								if (dist < closestDist) {
@@ -168,7 +165,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 								}
 							}
 						} else {
-							// 怪物：满足10点伤害 或 6次全类型攻击
 							if (missingHealth >= 10.0F || hits >= 6) {
 								double dist = entity.getDistanceSq(master);
 								if (dist < closestDist) {
@@ -191,6 +187,8 @@ public class EntityMode_Fencer extends EntityModeBase {
 			public void startExecuting() {
 				super.startExecuting();
 				owner.setAttackTarget(this.target);
+				// 只有确认发动致命一击时才播报
+				System.out.println("[LMR-TARGET-AI] 确认集火，强杀目标: " + this.target.getName());
 			}
 		});
 
@@ -253,7 +251,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (!(rawMaster instanceof EntityLivingBase)) return false;
 				EntityLivingBase master = (EntityLivingBase) rawMaster;
 
-				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(24.0D, 12.0D, 24.0D));
+				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(64.0D, 32.0D, 64.0D));
 
 				EntityLivingBase bestTarget = null;
 				double closestDist = Double.MAX_VALUE;
@@ -315,6 +313,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 			public void startExecuting() {
 				super.startExecuting();
 				owner.setAttackTarget(this.target);
+				System.out.println("[LMR-TARGET-AI] 确认集火指令，越权强杀目标: " + this.target.getName());
 			}
 		});
 
@@ -441,6 +440,10 @@ public class EntityMode_Fencer extends EntityModeBase {
 			return false;
 		}
 		
+		if (!(pEntity instanceof IMob)) {
+			return false;
+		}
+		
 		if (pEntity instanceof EntityCreeper) {
 			boolean attackingOwner = owner.getMaidMasterEntity() != null && owner.getMaidMasterEntity().equals(((EntityCreeper) pEntity).getAttackTarget());
 			boolean attackingMaid = pEntity.equals(owner.getRevengeTarget()) || owner.equals(((EntityCreeper)pEntity).getAttackTarget());
@@ -459,6 +462,7 @@ public class EntityMode_Fencer extends EntityModeBase {
             this.dismountCooldown--;
         }
         
+        //  0.15秒下车 + 0.15秒冷却
         if (owner.isRiding()) {
             Entity mount = owner.getRidingEntity();
             if (mount instanceof EntityLivingBase) {
@@ -475,10 +479,10 @@ public class EntityMode_Fencer extends EntityModeBase {
                 if (!isSafeMount) {
                     if (this.dismountCooldown <= 0) {
                         this.dismountTimer++;
-                        if (this.dismountTimer >= 3) {
+                        if (this.dismountTimer >= 3) { // 3 Tick = 0.15s
                             owner.dismountRidingEntity();
                             this.dismountTimer = 0;
-                            this.dismountCooldown = 10; 
+                            this.dismountCooldown = 3; 
                         }
                     }
                 } else {
