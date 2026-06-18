@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (参数稳定版：合理移速 + 免跌落伤害跳劈 + 绝境拉扯)
+ * メイドさんの直接攻撃系処理 (全动态武器攻速 + 绝对护卫狗链瞬移 + 完美跳劈 + 绝境只控距不攻击)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -76,6 +76,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 	}
 
+	// 🌟 获取武器动态冷却时间的封装方法
 	private int getWeaponCooldown() {
 		float attackSpeed = 4.0F; 
 		net.minecraft.entity.ai.attributes.IAttributeInstance speedAttr = theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_SPEED);
@@ -127,8 +128,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
+		// 🌟 动态狗链与护驾瞬移机制
 		if (!theMaid.isFreedom() && theMaid.getMaidMasterEntity() instanceof EntityLivingBase) {
 			EntityLivingBase master = (EntityLivingBase) theMaid.getMaidMasterEntity();
+			
 			boolean isMasterMoving = Math.abs(master.posX - master.prevPosX) > 0.02D || Math.abs(master.posZ - master.prevPosZ) > 0.02D;
 			double maxDistSq = isMasterMoving ? 100.0D : 729.0D; 
 			
@@ -138,7 +141,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			if (distSqToMaster > maxDistSq) {
 				needTeleport = true;
 			} else if (master.getRevengeTarget() != null && master.getRevengeTarget().isEntityAlive()) {
-				if (distSqToMaster > 36.0D) needTeleport = true;
+				if (distSqToMaster > 36.0D) {
+					needTeleport = true;
+				}
 			}
 			
 			if (needTeleport) {
@@ -210,7 +215,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (this.isJumpSlashing) {
 			this.jumpSlashTimer++;
 			
-			// 🌟 强制清除跌落距离，防止落地摔死
 			theMaid.fallDistance = 0.0F;
 			
 			if (this.jumpSlashTimer <= 10 && theMaid.motionY > 0.05D) {
@@ -223,9 +227,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				}
 				
 				theMaid.setNoGravity(true);
-				// 🌟 降低下落加速度
 				theMaid.motionY -= 0.06D; 
-				// 🌟 降低最大下坠速度
 				if (theMaid.motionY < -0.5D) theMaid.motionY = -0.5D; 
 				
 				theMaid.motionX = this.jumpDirX * 1.1D;
@@ -282,7 +284,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.renderYawOffset = theMaid.rotationYaw;
 
 				if (distance > 1.5D && distance < 10.0D) {
-					// 🌟 降低突进速度
 					theMaid.motionX = (dX / distance) * 0.6D;
 					theMaid.motionZ = (dZ / distance) * 0.6D;
 					theMaid.velocityChanged = true;
@@ -380,7 +381,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 3. FSM 动作连招预备
+		// 3. FSM 动作连招预备 
 		// =======================================================
 		boolean isFSM = pendingBackstep || pendingDash;
 		if (actionDelayTimer > 0) {
@@ -452,7 +453,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (dist > 7.0D) forward = 1.0D; 
 				
 				double moveX = dirX * forward + strafeX * 0.8D; double moveZ = dirZ * forward + strafeZ * 0.8D;
-				// 🌟 拉扯移速压制，杜绝漂移感
 				theMaid.getNavigator().tryMoveToXYZ(theMaid.posX + moveX * 3.0D, theMaid.posY, theMaid.posZ + moveZ * 3.0D, moveSpeed * 1.0F);
 
 				if (this.actionDelayTimer <= 0 && dist >= 4.0D && dist <= 8.0D) {
@@ -462,7 +462,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_ENDERDRAGON_FLAP, 1.0F, 1.2F);
 						theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true);
 						
-						// 🌟 降低初速度，防止过高跳跃
 						theMaid.motionY = 0.45D; 
 						this.jumpDirX = dirX * 0.4D; this.jumpDirZ = dirZ * 0.4D;
 						return; 
@@ -474,7 +473,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				double distToTarget = theMaid.getDistanceSq(entityTarget);
 				float burstSpeed = moveSpeed;
 				
-				// 🌟 降低追击乘数，还原真实跑步速度
 				if (this.rescueBerserkTimer > 0) burstSpeed = moveSpeed * 1.3F; 
 				else if (distToTarget < 36.0D) burstSpeed = moveSpeed * 1.15F; 
 				
@@ -486,13 +484,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 5. 斩击判定 
+		// 5. 斩击判定 (🌟 仅此处修改：加入 !this.isKitingPhase，绝境彻底封印平A，只会控距拉扯)
 		// =======================================================
-		if (this.actionDelayTimer <= 0 && !this.isJumpSlashing && !this.isDashBuff) {
+		if (this.actionDelayTimer <= 0 && !this.isJumpSlashing && !this.isDashBuff && !this.isKitingPhase) {
 			double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 			attackRangeSq *= attackRangeSq;
-			
-			if (this.isKitingPhase) attackRangeSq = Math.max(attackRangeSq, 9.0D);
 
 			double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
 			
@@ -543,13 +539,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					
 					this.actionDelayTimer = getWeaponCooldown(); 
 
-					if (!this.isKitingPhase) {
-						boolean isBerserk = theMaid.isBloodsuck();
-						float triggerChance = isBerserk ? 0.50F : 0.25F;
-						if (theMaid.getRNG().nextFloat() < triggerChance) {
-							this.actionDelayTimer = (int)(getWeaponCooldown() * 0.3F); 
-							this.pendingBackstep = true; 
-						}
+					boolean isBerserk = theMaid.isBloodsuck();
+					float triggerChance = isBerserk ? 0.50F : 0.25F;
+					if (theMaid.getRNG().nextFloat() < triggerChance) {
+						this.actionDelayTimer = (int)(getWeaponCooldown() * 0.3F); 
+						this.pendingBackstep = true; 
 					}
 				} 
 			}
