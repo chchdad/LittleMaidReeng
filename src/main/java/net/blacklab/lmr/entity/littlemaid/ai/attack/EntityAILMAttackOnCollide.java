@@ -189,10 +189,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		boolean isHealthBerserk = theMaid.getHealth() <= theMaid.getMaxHealth() * 0.50F;
-		boolean isRescueBerserk = this.rescueBerserkTimer > 0;
-		boolean isBerserk = isHealthBerserk || isRescueBerserk;
-		theMaid.setBloodsuck(isBerserk); 
+		// 夺 AI 对血量狂暴的控制权，交由 EntityLittleMaid 管理
+		// 这里只保留“超视距救主”的强制红温
+		if (this.rescueBerserkTimer > 0) {
+			theMaid.setBloodsuck(true); 
+		}
+
 		
 		// =======================================================
 		// 2. Dash 追击系统
