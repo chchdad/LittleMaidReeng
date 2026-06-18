@@ -28,7 +28,6 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemSword;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.math.AxisAlignedBB;
-import net.minecraft.util.math.MathHelper;
 
 import net.minecraft.entity.monster.IMob;
 
@@ -72,67 +71,126 @@ public class EntityMode_Fencer extends EntityModeBase {
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
+		//  优先1先解决离主人近的怪！
 		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			@Override
 			public boolean shouldExecute() {
-				if (owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase newAttacker = owner.getMaidMasterEntity().getRevengeTarget();
-				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
-					return false;
+				Entity rawMaster = owner.getMaidMasterEntity();
+				if (!(rawMaster instanceof EntityLivingBase)) return false;
+				EntityLivingBase master = (EntityLivingBase) rawMaster;
+
+				// 1. 如果主人刚刚被打了，立刻锁定凶手
+				EntityLivingBase attacker = master.getRevengeTarget();
+				if (attacker != null && attacker.isEntityAlive() && !owner.getIFF(attacker) && (attacker instanceof IMob)) {
+					this.target = attacker;
+					return true;
 				}
-				//  赋值给底层 target 变量
-				this.target = newAttacker;
-				return true;
+
+				// 2. 检查极度危险的近身怪 (4格内，且正在瞄准主人的怪物)
+				List<EntityLivingBase> closeEnemies = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(4.0D, 3.0D, 4.0D));
+				EntityLivingBase closestThreat = null;
+				double minDist = Double.MAX_VALUE;
+				for (EntityLivingBase enemy : closeEnemies) {
+					if (!enemy.isEntityAlive() || owner.getIFF(enemy) || !(enemy instanceof IMob)) continue;
+
+					if (enemy.getRevengeTarget() == master || (enemy instanceof net.minecraft.entity.EntityLiving && ((net.minecraft.entity.EntityLiving)enemy).getAttackTarget() == master)) {
+						double dist = enemy.getDistanceSq(master);
+						if (dist < minDist) {
+							minDist = dist;
+							closestThreat = enemy;
+						}
+					}
+				}
+				if (closestThreat != null) {
+					this.target = closestThreat;
+					return true;
+				}
+				return false;
 			}
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				System.out.println("[LMR-TARGET-AI] 护主AI启动！锁定凶手: " + this.target.getName());
+				owner.setAttackTarget(this.target);
 			}
 		});
 
+		// 优先级 2：全类型伤害追踪
 		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
-			private int lastAttackTick = 0;
+			private java.util.Map<Integer, Float> healthMap = new java.util.HashMap<>();
 
 			@Override
 			public boolean shouldExecute() {
-				if (owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase potentialTarget = owner.getMaidMasterEntity().getLastAttackedEntity();
-				
-				if (potentialTarget == null || !potentialTarget.isEntityAlive()) return false;
+				Entity rawMaster = owner.getMaidMasterEntity();
+				if (!(rawMaster instanceof EntityLivingBase)) return false;
+				EntityLivingBase master = (EntityLivingBase) rawMaster;
 
-				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
-				if (currentTick != lastAttackTick) {
-					lastAttackTick = currentTick;
-					int id = potentialTarget.getEntityId();
-					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
-					System.out.println("[LMR-TARGET-AI] 主人攻击目标: " + potentialTarget.getName() + " | 当前累计次数: " + hitCountMap.get(id));
+				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(24.0D, 12.0D, 24.0D));
+
+				EntityLivingBase bestTarget = null;
+				double closestDist = Double.MAX_VALUE;
+
+				for (EntityLivingBase entity : list) {
+					if (!entity.isEntityAlive()) continue;
+
+					// 是否在追杀玩家 (AttackTarget) 或者 被玩家打了 (RevengeTarget)
+					boolean isChasing = (entity instanceof net.minecraft.entity.EntityLiving && ((net.minecraft.entity.EntityLiving)entity).getAttackTarget() == master);
+					boolean isRevenge = (entity.getRevengeTarget() == master);
+
+					if (isChasing || isRevenge) {
+						int id = entity.getEntityId();
+						float currentHealth = entity.getHealth();
+						Float lastHealth = healthMap.get(id);
+
+						if (lastHealth == null) {
+							healthMap.put(id, currentHealth);
+						} else if (currentHealth < lastHealth) {
+							//  只要它掉血了，且它觉得是主人干的 (RevengeTarget是主人)，就算作全类型攻击一次！
+							if (isRevenge) {
+								hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
+							}
+							healthMap.put(id, currentHealth);
+						} else if (currentHealth > lastHealth) {
+							healthMap.put(id, currentHealth);
+						}
+
+						int hits = hitCountMap.getOrDefault(id, 0);
+						float missingHealth = entity.getMaxHealth() - currentHealth;
+						boolean isFriendly = owner.getIFF(entity);
+
+						if (isFriendly) {
+							// 友军防误伤：必须硬吃 6 次全类型伤害
+							if (hits >= 6) {
+								double dist = entity.getDistanceSq(master);
+								if (dist < closestDist) {
+									closestDist = dist;
+									bestTarget = entity;
+								}
+							}
+						} else {
+							// 怪物：满足10点伤害 或 6次全类型攻击
+							if (missingHealth >= 10.0F || hits >= 6) {
+								double dist = entity.getDistanceSq(master);
+								if (dist < closestDist) {
+									closestDist = dist;
+									bestTarget = entity;
+								}
+							}
+						}
+					}
 				}
 
-				int hits = hitCountMap.getOrDefault(potentialTarget.getEntityId(), 0);
-				float missingHealth = potentialTarget.getMaxHealth() - potentialTarget.getHealth();
-				boolean isFriendly = owner.getIFF(potentialTarget);
-
-				if (isFriendly) {
-					if (hits >= 6) {
-						this.target = potentialTarget; //  修复鬼步
-						return true;
-					}
-					return false;
-				} else {
-					if (missingHealth >= 10.0F || hits >= 6) {
-						this.target = potentialTarget; //  修复鬼步
-						return true;
-					}
-					return false;
+				if (bestTarget != null) {
+					this.target = bestTarget;
+					return true;
 				}
+				return false;
 			}
 
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				System.out.println("[LMR-TARGET-AI] 蓄意集火AI正式启动！无视IFF强杀: " + this.target.getName());
+				owner.setAttackTarget(this.target);
 			}
 		});
 
@@ -148,60 +206,115 @@ public class EntityMode_Fencer extends EntityModeBase {
 		ltasks2[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			@Override
 			public boolean shouldExecute() {
-				if (owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase newAttacker = owner.getMaidMasterEntity().getRevengeTarget();
-				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
-					return false;
+				Entity rawMaster = owner.getMaidMasterEntity();
+				if (!(rawMaster instanceof EntityLivingBase)) return false;
+				EntityLivingBase master = (EntityLivingBase) rawMaster;
+
+				EntityLivingBase attacker = master.getRevengeTarget();
+				if (attacker != null && attacker.isEntityAlive() && !owner.getIFF(attacker) && (attacker instanceof IMob)) {
+					this.target = attacker;
+					return true;
 				}
-				this.target = newAttacker;
-				return true;
+
+				List<EntityLivingBase> closeEnemies = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(4.0D, 3.0D, 4.0D));
+				EntityLivingBase closestThreat = null;
+				double minDist = Double.MAX_VALUE;
+				for (EntityLivingBase enemy : closeEnemies) {
+					if (!enemy.isEntityAlive() || owner.getIFF(enemy) || !(enemy instanceof IMob)) continue;
+
+					if (enemy.getRevengeTarget() == master || (enemy instanceof net.minecraft.entity.EntityLiving && ((net.minecraft.entity.EntityLiving)enemy).getAttackTarget() == master)) {
+						double dist = enemy.getDistanceSq(master);
+						if (dist < minDist) {
+							minDist = dist;
+							closestThreat = enemy;
+						}
+					}
+				}
+				if (closestThreat != null) {
+					this.target = closestThreat;
+					return true;
+				}
+				return false;
 			}
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
+				owner.setAttackTarget(this.target);
 			}
 		});
 		
 		ltasks2[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
-			private int lastAttackTick = 0;
+			private java.util.Map<Integer, Float> healthMap = new java.util.HashMap<>();
 
 			@Override
 			public boolean shouldExecute() {
-				if (owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase potentialTarget = owner.getMaidMasterEntity().getLastAttackedEntity();
-				
-				if (potentialTarget == null || !potentialTarget.isEntityAlive()) return false;
+				Entity rawMaster = owner.getMaidMasterEntity();
+				if (!(rawMaster instanceof EntityLivingBase)) return false;
+				EntityLivingBase master = (EntityLivingBase) rawMaster;
 
-				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
-				if (currentTick != lastAttackTick) {
-					lastAttackTick = currentTick;
-					int id = potentialTarget.getEntityId();
-					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
+				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(24.0D, 12.0D, 24.0D));
+
+				EntityLivingBase bestTarget = null;
+				double closestDist = Double.MAX_VALUE;
+
+				for (EntityLivingBase entity : list) {
+					if (!entity.isEntityAlive()) continue;
+
+					boolean isChasing = (entity instanceof net.minecraft.entity.EntityLiving && ((net.minecraft.entity.EntityLiving)entity).getAttackTarget() == master);
+					boolean isRevenge = (entity.getRevengeTarget() == master);
+
+					if (isChasing || isRevenge) {
+						int id = entity.getEntityId();
+						float currentHealth = entity.getHealth();
+						Float lastHealth = healthMap.get(id);
+
+						if (lastHealth == null) {
+							healthMap.put(id, currentHealth);
+						} else if (currentHealth < lastHealth) {
+							if (isRevenge) {
+								hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
+							}
+							healthMap.put(id, currentHealth);
+						} else if (currentHealth > lastHealth) {
+							healthMap.put(id, currentHealth);
+						}
+
+						int hits = hitCountMap.getOrDefault(id, 0);
+						float missingHealth = entity.getMaxHealth() - currentHealth;
+						boolean isFriendly = owner.getIFF(entity);
+
+						if (isFriendly) {
+							if (hits >= 6) {
+								double dist = entity.getDistanceSq(master);
+								if (dist < closestDist) {
+									closestDist = dist;
+									bestTarget = entity;
+								}
+							}
+						} else {
+							if (missingHealth >= 10.0F || hits >= 6) {
+								double dist = entity.getDistanceSq(master);
+								if (dist < closestDist) {
+									closestDist = dist;
+									bestTarget = entity;
+								}
+							}
+						}
+					}
 				}
 
-				int hits = hitCountMap.getOrDefault(potentialTarget.getEntityId(), 0);
-				float missingHealth = potentialTarget.getMaxHealth() - potentialTarget.getHealth();
-				boolean isFriendly = owner.getIFF(potentialTarget);
-
-				if (isFriendly) {
-					if (hits >= 6) {
-						this.target = potentialTarget;
-						return true;
-					}
-					return false;
-				} else {
-					if (missingHealth >= 10.0F || hits >= 6) {
-						this.target = potentialTarget;
-						return true;
-					}
-					return false;
+				if (bestTarget != null) {
+					this.target = bestTarget;
+					return true;
 				}
+				return false;
 			}
 
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
+				owner.setAttackTarget(this.target);
 			}
 		});
 
