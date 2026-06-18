@@ -2247,6 +2247,45 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 
 		LittleMaidReengaged.Debug("LMM_EntityLittleMaid.attackEntityFrom "+this+"("+maidAvatar+") <= "+entity);
 
+		// ==============================================================================
+		//  插入：防爆举盾与免死锁血机制 (阶段一核心)
+		// ==============================================================================
+		if (par1DamageSource.isExplosion()) {
+			// 1. 通过爆炸源坐标强制扭头
+			net.minecraft.util.math.Vec3d expLoc = par1DamageSource.getDamageLocation();
+			if (expLoc != null) {
+				double dX = expLoc.x - this.posX;
+				double dZ = expLoc.z - this.posZ;
+				float targetYaw = (float)(Math.atan2(dZ, dX) * 180.0D / Math.PI) - 90.0F;
+				this.rotationYaw = targetYaw;
+				this.rotationYawHead = targetYaw;
+				this.renderYawOffset = targetYaw;
+			}
+
+			// 2. 举盾动作与音效 (视觉与听觉反馈)
+			if (!this.maidAvatar.isHandActive()) {
+				this.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND); // 强制举起主/副手
+			}
+			this.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 1.0F);
+
+			// 3. 免死兜底与减伤计算
+			if (par2 >= this.getHealth()) {
+				// 致死爆炸：强制没收多余伤害，锁血1点 (半颗心)
+				par2 = 0.0F; 
+				this.setHealth(1.0F); 
+				this.hurtResistantTime = 60; // 3秒无敌帧
+				// 添加一个高等级的抗性提升作为保险
+				this.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 60, 4, false, false));
+				System.out.println("[LMR-SURVIVAL] 触发防爆免死，强制锁血1点并赋予无敌帧。");
+			} else {
+				// 非致死爆炸：模拟完美格挡减伤 90%
+				par2 *= 0.1F; 
+				this.hurtResistantTime = 60; 
+				System.out.println("[LMR-SURVIVAL] 触发防爆格挡！减免 90% 爆炸伤害。");
+			}
+		}
+		// ==============================================================================
+
 		// ダメージソースを特定して音声の設定
 		setMaidDamegeSound(EnumSound.HURT);
 		if (par1DamageSource == DamageSource.IN_FIRE || par1DamageSource == DamageSource.ON_FIRE || par1DamageSource == DamageSource.LAVA) {
