@@ -114,7 +114,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 				float missingHealth = target.getMaxHealth() - target.getHealth();
 				boolean isFriendly = owner.getIFF(target);
 
-				// 🌟 破除 IFF 锁定：如果是友军（如村民），必须连续打 6 次才能证明是“蓄意谋杀”，绝不因高伤害误伤
+				// 如果是友军（如村民），必须连续打 6 次才能证明是“蓄意谋杀”，不因高伤害误伤
 				if (isFriendly) {
 					if (hits >= 6) {
 						this.targetToAttack = target;
@@ -122,7 +122,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 					}
 					return false;
 				} else {
-					// 🌟 正常怪物：满足伤害或者次数任意一条即可
+					// 正常怪物：满足伤害或者次数任意一条即可
 					if (missingHealth >= 10.0F || hits >= 6) {
 						this.targetToAttack = target;
 						return true;
