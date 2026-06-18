@@ -46,6 +46,9 @@ public class EntityMode_Archer extends EntityModeBase {
 	
 	public static final List<Class <? extends Item>> arrowClassList = initArrowClassList();
 	
+	protected int dismountTimer = 0;
+	protected int dismountCooldown = 0;
+	
 	public static List<Class <? extends Item>> initArrowClassList() {
 		List<Class <? extends Item>> list = new ArrayList<>();
 		list.add(ItemArrow.class);
@@ -74,7 +77,6 @@ public class EntityMode_Archer extends EntityModeBase {
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
-		//  优先级1：绝对护卫射手版！
 		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private EntityLivingBase attacker;
 			@Override
@@ -94,7 +96,6 @@ public class EntityMode_Archer extends EntityModeBase {
 			}
 		});
 		
-		//  优先级2：持久化独立记仇（远程）
 		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
@@ -276,7 +277,6 @@ public class EntityMode_Archer extends EntityModeBase {
 		if (!isInventoryArrowItem()) return false;
 		if (!MaidHelper.isTargetReachable(owner, pEntity, 18 * 18)) return false;
 		
-		//  苦力怕安全补丁（远程同样适用）
 		if (pEntity instanceof EntityCreeper) {
 			boolean attackingOwner = owner.getMaidMasterEntity() != null && owner.getMaidMasterEntity().equals(((EntityCreeper) pEntity).getAttackTarget());
 			boolean attackingMaid = pEntity.equals(owner.getRevengeTarget()) || owner.equals(((EntityCreeper)pEntity).getAttackTarget());
@@ -303,7 +303,10 @@ public class EntityMode_Archer extends EntityModeBase {
 			owner.setAttackTarget(null);
 		}
 		
-		//  自动脱离未知生物坐骑
+        if (this.dismountCooldown > 0) {
+            this.dismountCooldown--;
+        }
+		
         if (owner.isRiding()) {
             Entity mount = owner.getRidingEntity();
             if (mount instanceof EntityLivingBase) {
@@ -317,9 +320,24 @@ public class EntityMode_Archer extends EntityModeBase {
                 }
                 
                 if (!isSafeMount) {
-                    owner.dismountRidingEntity();
+                    if (this.dismountCooldown <= 0) {
+                        this.dismountTimer++;
+                        //  3 Tick = 0.15 秒反应
+                        if (this.dismountTimer >= 3) {
+                            owner.dismountRidingEntity();
+                            this.dismountTimer = 0;
+                            //  0.5秒（10 Tick）冷却
+                            this.dismountCooldown = 10;
+                        }
+                    }
+                } else {
+                    this.dismountTimer = 0;
                 }
+            } else {
+                this.dismountTimer = 0;
             }
+        } else {
+            this.dismountTimer = 0;
         }
 		
 		switch (pMode) {
