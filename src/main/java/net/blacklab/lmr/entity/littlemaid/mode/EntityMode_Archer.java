@@ -78,7 +78,6 @@ public class EntityMode_Archer extends EntityModeBase {
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
 		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
-			private EntityLivingBase attacker;
 			@Override
 			public boolean shouldExecute() {
 				if (owner.getMaidMasterEntity() == null) return false;
@@ -86,48 +85,46 @@ public class EntityMode_Archer extends EntityModeBase {
 				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
 					return false;
 				}
-				this.attacker = newAttacker;
+				this.target = newAttacker;
 				return true;
 			}
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				owner.setAttackTarget(this.attacker);
 			}
 		});
 		
 		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
-			private EntityLivingBase targetToAttack;
 
 			@Override
 			public boolean shouldExecute() {
 				if (owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
+				EntityLivingBase potentialTarget = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || !target.isEntityAlive()) return false;
+				if (potentialTarget == null || !potentialTarget.isEntityAlive()) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
 					lastAttackTick = currentTick;
-					int id = target.getEntityId();
+					int id = potentialTarget.getEntityId();
 					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
-				int hits = hitCountMap.getOrDefault(target.getEntityId(), 0);
-				float missingHealth = target.getMaxHealth() - target.getHealth();
-				boolean isFriendly = owner.getIFF(target);
+				int hits = hitCountMap.getOrDefault(potentialTarget.getEntityId(), 0);
+				float missingHealth = potentialTarget.getMaxHealth() - potentialTarget.getHealth();
+				boolean isFriendly = owner.getIFF(potentialTarget);
 
 				if (isFriendly) {
 					if (hits >= 6) {
-						this.targetToAttack = target;
+						this.target = potentialTarget;
 						return true;
 					}
 					return false;
 				} else {
 					if (missingHealth >= 10.0F || hits >= 6) {
-						this.targetToAttack = target;
+						this.target = potentialTarget;
 						return true;
 					}
 					return false;
@@ -137,7 +134,6 @@ public class EntityMode_Archer extends EntityModeBase {
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				owner.setAttackTarget(this.targetToAttack);
 			}
 		});
 
@@ -151,7 +147,6 @@ public class EntityMode_Archer extends EntityModeBase {
 		ltasks2[1] = new EntityAITasks(owner.aiProfiler);
 
 		ltasks2[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
-			private EntityLivingBase attacker;
 			@Override
 			public boolean shouldExecute() {
 				if (owner.getMaidMasterEntity() == null) return false;
@@ -159,48 +154,46 @@ public class EntityMode_Archer extends EntityModeBase {
 				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
 					return false;
 				}
-				this.attacker = newAttacker;
+				this.target = newAttacker;
 				return true;
 			}
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				owner.setAttackTarget(this.attacker);
 			}
 		});
 		
 		ltasks2[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
-			private EntityLivingBase targetToAttack;
 
 			@Override
 			public boolean shouldExecute() {
 				if (owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
+				EntityLivingBase potentialTarget = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || !target.isEntityAlive()) return false;
+				if (potentialTarget == null || !potentialTarget.isEntityAlive()) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
 					lastAttackTick = currentTick;
-					int id = target.getEntityId();
+					int id = potentialTarget.getEntityId();
 					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
-				int hits = hitCountMap.getOrDefault(target.getEntityId(), 0);
-				float missingHealth = target.getMaxHealth() - target.getHealth();
-				boolean isFriendly = owner.getIFF(target);
+				int hits = hitCountMap.getOrDefault(potentialTarget.getEntityId(), 0);
+				float missingHealth = potentialTarget.getMaxHealth() - potentialTarget.getHealth();
+				boolean isFriendly = owner.getIFF(potentialTarget);
 
 				if (isFriendly) {
 					if (hits >= 6) {
-						this.targetToAttack = target;
+						this.target = potentialTarget;
 						return true;
 					}
 					return false;
 				} else {
 					if (missingHealth >= 10.0F || hits >= 6) {
-						this.targetToAttack = target;
+						this.target = potentialTarget;
 						return true;
 					}
 					return false;
@@ -210,7 +203,6 @@ public class EntityMode_Archer extends EntityModeBase {
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				owner.setAttackTarget(this.targetToAttack);
 			}
 		});
 
