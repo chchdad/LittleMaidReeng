@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (终极横扫剑技 + 红温超视距救主 + 蓄力滑步)
+ * メイドさんの直接攻撃系処理 (终极横扫剑技 + 真·底层红温超视距救驾 + 蓄力滑步增强)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -195,7 +195,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.setBloodsuck(isBerserk); 
 		
 		// =======================================================
-		// 2. Dash 追击
+		// 2. Dash 追击系统
 		// =======================================================
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
@@ -271,7 +271,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				
 				if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 2 == 0) {
 					((net.minecraft.world.WorldServer)worldObj).spawnParticle(
-						net.minecraft.util.EnumParticleTypes.CRIT, //  修改为暴击粒子
+						net.minecraft.util.EnumParticleTypes.CRIT, //  充满攻击性的暴击粒子
 						theMaid.posX + (theMaid.getRNG().nextFloat()-0.5), 
 						theMaid.posY + 0.5D, 
 						theMaid.posZ + (theMaid.getRNG().nextFloat()-0.5), 
@@ -291,8 +291,22 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				if (pendingBackstep) {
 					pendingBackstep = false; 
 					
-					//  后撤，插入滑步发力音效
-					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_STEP, 0.8F, 1.2F);
+					//  护甲安全检测 (防空指针)
+					boolean hasArmor = false;
+					for (net.minecraft.item.ItemStack armorStack : theMaid.getArmorInventoryList()) {
+						if (armorStack != null && !armorStack.isEmpty()) {
+							hasArmor = true;
+							break;
+						}
+					}
+					
+					// 如果穿了装备，叠加皮甲摩擦声
+					if (hasArmor) {
+						theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_ARMOR_EQUIP_LEATHER, 0.8F, 1.2F);
+					}
+					
+					//  无论是否穿甲，必定播放女仆的 Target 锁定音效
+					theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 					
 					double dX = theMaid.posX - entityTarget.posX;
 					double dZ = theMaid.posZ - entityTarget.posZ;
@@ -311,8 +325,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (pendingDash) {
 					pendingDash = false;
 					
-					// 拔刀突刺，插入沉闷的蹬地爆发音效
-					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_STEP, 1.0F, 0.8F);
+					//  拔刀突刺，模拟挥剑落空短促破空的“呼”声
+					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_NODAMAGE, 1.0F, 0.8F);
 					
 					this.isGuard = false;
 					theMaid.maidAvatar.stopActiveHand(); 
@@ -361,7 +375,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 5. 斩击判定 (瞬转 + 攻速 + 剑刃横扫)
+		// 5. 斩击判定 (瞬转 + 严格攻速 + 剑刃横扫)
 		// =======================================================
 		double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 		attackRangeSq *= attackRangeSq;
