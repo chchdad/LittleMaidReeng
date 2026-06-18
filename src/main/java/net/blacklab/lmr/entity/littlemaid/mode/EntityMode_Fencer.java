@@ -73,7 +73,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
 		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
-			private EntityLivingBase attacker;
 			@Override
 			public boolean shouldExecute() {
 				if (owner.getMaidMasterEntity() == null) return false;
@@ -81,50 +80,49 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
 					return false;
 				}
-				this.attacker = newAttacker;
+				// 🌟 修复鬼步核心：精准赋值给底层 target 变量
+				this.target = newAttacker;
 				return true;
 			}
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				owner.setAttackTarget(this.attacker);
+				System.out.println("[LMR-TARGET-AI] 护主AI启动！锁定凶手: " + this.target.getName());
 			}
 		});
 
 		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
-			private EntityLivingBase targetToAttack;
 
 			@Override
 			public boolean shouldExecute() {
 				if (owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
+				EntityLivingBase potentialTarget = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || !target.isEntityAlive()) return false;
+				if (potentialTarget == null || !potentialTarget.isEntityAlive()) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
 					lastAttackTick = currentTick;
-					int id = target.getEntityId();
+					int id = potentialTarget.getEntityId();
 					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
+					System.out.println("[LMR-TARGET-AI] 主人攻击目标: " + potentialTarget.getName() + " | 当前累计次数: " + hitCountMap.get(id));
 				}
 
-				int hits = hitCountMap.getOrDefault(target.getEntityId(), 0);
-				float missingHealth = target.getMaxHealth() - target.getHealth();
-				boolean isFriendly = owner.getIFF(target);
+				int hits = hitCountMap.getOrDefault(potentialTarget.getEntityId(), 0);
+				float missingHealth = potentialTarget.getMaxHealth() - potentialTarget.getHealth();
+				boolean isFriendly = owner.getIFF(potentialTarget);
 
-				// 如果是友军（如村民），必须连续打 6 次才能证明是“蓄意谋杀”，不因高伤害误伤
 				if (isFriendly) {
 					if (hits >= 6) {
-						this.targetToAttack = target;
+						this.target = potentialTarget; // 🌟 修复鬼步核心
 						return true;
 					}
 					return false;
 				} else {
-					// 正常怪物：满足伤害或者次数任意一条即可
 					if (missingHealth >= 10.0F || hits >= 6) {
-						this.targetToAttack = target;
+						this.target = potentialTarget; // 🌟 修复鬼步核心
 						return true;
 					}
 					return false;
@@ -134,7 +132,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				owner.setAttackTarget(this.targetToAttack);
+				System.out.println("[LMR-TARGET-AI] 蓄意集火AI正式启动！无视IFF强杀: " + this.target.getName());
 			}
 		});
 
@@ -148,7 +146,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 		ltasks2[1] = new EntityAITasks(owner.aiProfiler);
 
 		ltasks2[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
-			private EntityLivingBase attacker;
 			@Override
 			public boolean shouldExecute() {
 				if (owner.getMaidMasterEntity() == null) return false;
@@ -156,48 +153,46 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
 					return false;
 				}
-				this.attacker = newAttacker;
+				this.target = newAttacker;
 				return true;
 			}
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				owner.setAttackTarget(this.attacker);
 			}
 		});
 		
 		ltasks2[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
-			private EntityLivingBase targetToAttack;
 
 			@Override
 			public boolean shouldExecute() {
 				if (owner.getMaidMasterEntity() == null) return false;
-				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
+				EntityLivingBase potentialTarget = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || !target.isEntityAlive()) return false;
+				if (potentialTarget == null || !potentialTarget.isEntityAlive()) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
 					lastAttackTick = currentTick;
-					int id = target.getEntityId();
+					int id = potentialTarget.getEntityId();
 					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
-				int hits = hitCountMap.getOrDefault(target.getEntityId(), 0);
-				float missingHealth = target.getMaxHealth() - target.getHealth();
-				boolean isFriendly = owner.getIFF(target);
+				int hits = hitCountMap.getOrDefault(potentialTarget.getEntityId(), 0);
+				float missingHealth = potentialTarget.getMaxHealth() - potentialTarget.getHealth();
+				boolean isFriendly = owner.getIFF(potentialTarget);
 
 				if (isFriendly) {
 					if (hits >= 6) {
-						this.targetToAttack = target;
+						this.target = potentialTarget;
 						return true;
 					}
 					return false;
 				} else {
 					if (missingHealth >= 10.0F || hits >= 6) {
-						this.targetToAttack = target;
+						this.target = potentialTarget;
 						return true;
 					}
 					return false;
@@ -207,7 +202,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 			@Override
 			public void startExecuting() {
 				super.startExecuting();
-				owner.setAttackTarget(this.targetToAttack);
 			}
 		});
 
