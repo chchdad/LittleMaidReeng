@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (终极横扫剑技 + 真·底层红温超视距救驾 + 小白拉扯走位 + 零重力跳劈处决)
+ * メイドさんの直接攻撃系処理 (终极横扫剑技 + 真·底层红温超视距救驾 + 小白拉扯走位 + 物理自然跳劈处决)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -39,7 +39,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	//  绝境求生变量 (小白走位)
 	protected boolean isKitingPhase = false;
 	protected int dodgeCooldown = 0;
-	protected boolean strafingClockwise = true; // 小白左右横移标志
+	protected boolean strafingClockwise = true; 
 
 	//  跳劈处决变量
 	protected boolean isJumpSlashing = false;
@@ -165,33 +165,35 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return;
 		}
 
-		// 视角始终锁定目标
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		//  终极跳劈状态机
+		//  终极跳劈状态机 
 		// =======================================================
 		if (this.isJumpSlashing) {
 			this.jumpSlashTimer++;
 			
-			// 1. 强制关闭原版重力，接管下落速度
-			theMaid.setNoGravity(true);
-			theMaid.motionY -= 0.05D; // 自定义重力：越下落越快！
-			
-			// 2. 赋予滞空横向惯性
-			theMaid.motionX = this.jumpDirX;
-			theMaid.motionZ = this.jumpDirZ;
-			theMaid.velocityChanged = true;
+			// 1. 上升阶段：使用原版真实重力，显得非常自然
+			if (this.jumpSlashTimer <= 10 && theMaid.motionY > 0.05D) {
+				theMaid.motionX = this.jumpDirX;
+				theMaid.motionZ = this.jumpDirZ;
+			} 
+			// 2. 滞空与下坠阶段：升至最高点时，接管重力进行处决下劈！
+			else {
+				theMaid.setNoGravity(true);
+				theMaid.motionY -= 0.07D; // 越掉越快的沉重下坠感
+				// 略微增加向前的突刺惯性
+				theMaid.motionX = this.jumpDirX * 1.3D; 
+				theMaid.motionZ = this.jumpDirZ * 1.3D;
+			}
 
 			// 3. 下落处决判定
 			if (theMaid.motionY <= 0.0D) {
 				double distSq = theMaid.getDistanceSq(entityTarget);
 				if (distSq < 9.0D || theMaid.getEntityBoundingBox().grow(0.8D).intersects(entityTarget.getEntityBoundingBox())) {
-					// 强制清空敌人无敌帧，打出处决伤害
 					entityTarget.hurtResistantTime = 0; 
 					theMaid.attackEntityAsMob(entityTarget);
 					
-					// 播放沉闷打击音效，爆出巨量暴击粒子
 					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.2F, 0.8F);
 					if (worldObj instanceof net.minecraft.world.WorldServer) {
 						((net.minecraft.world.WorldServer)worldObj).spawnParticle(
@@ -213,7 +215,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 
 			// 4. 落地或超时安全锁
-			if (theMaid.onGround || this.jumpSlashTimer > 50) {
+			if (theMaid.onGround || this.jumpSlashTimer > 40) {
 				this.isJumpSlashing = false;
 				theMaid.setNoGravity(false);
 			}
@@ -259,7 +261,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		// 绝境缴械
 		if (this.isKitingPhase) {
 			theMaid.setBloodsuck(false);
 			this.rescueBerserkTimer = 0; 
@@ -269,13 +270,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		//  躲避箭矢 
+		//  躲避箭矢
 		// =======================================================
 		if (this.isKitingPhase && this.dodgeCooldown <= 0) {
 			java.util.List<net.minecraft.entity.projectile.EntityArrow> arrows = worldObj.getEntitiesWithinAABB(net.minecraft.entity.projectile.EntityArrow.class, theMaid.getEntityBoundingBox().grow(6.0D, 3.0D, 6.0D));
 			boolean incoming = false;
 			for (net.minecraft.entity.projectile.EntityArrow arrow : arrows) {
-				if (arrow.inGround || arrow.shootingEntity == theMaid || arrow.shootingEntity == theMaid.getMaidMasterEntity()) continue;
+				//  去掉了 protected 的 inGround 判断，靠速度阈值就能过滤插在地上的死箭
+				if (arrow.isDead || arrow.shootingEntity == theMaid || arrow.shootingEntity == theMaid.getMaidMasterEntity()) continue;
 				if (arrow.motionX * arrow.motionX + arrow.motionY * arrow.motionY + arrow.motionZ * arrow.motionZ > 0.05D) {
 					incoming = true; break;
 				}
@@ -304,12 +306,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			if (this.isKitingPhase) {
 				rerouteTimer = 5 + theMaid.getRNG().nextInt(5);
 				
-				// 1. 随机改变左右横移方向
 				if (theMaid.getRNG().nextInt(4) == 0) {
 					this.strafingClockwise = !this.strafingClockwise;
 				}
 				
-				// 2. 计算小白走位矢量 (朝向目标的法线)
 				double d0 = entityTarget.posX - theMaid.posX;
 				double d1 = entityTarget.posZ - theMaid.posZ;
 				double dist = Math.sqrt(d0 * d0 + d1 * d1);
@@ -317,45 +317,38 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				double dirX = d0 / dist;
 				double dirZ = d1 / dist;
 				
-				// 获取法向量用于左右平移
 				double strafeX = this.strafingClockwise ? -dirZ : dirZ;
 				double strafeZ = this.strafingClockwise ? dirX : -dirX;
 				
-				// 3. 动态控制进退：距离小于 4 倒退，大于 7 逼近
 				double forward = 0;
 				if (dist < 4.0D) forward = -1.2D; 
 				else if (dist > 7.0D) forward = 1.0D; 
 				
-				// 融合前后与左右走位
 				double moveX = dirX * forward + strafeX * 0.8D;
 				double moveZ = dirZ * forward + strafeZ * 0.8D;
 				
 				theMaid.getNavigator().tryMoveToXYZ(theMaid.posX + moveX * 3.0D, theMaid.posY, theMaid.posZ + moveZ * 3.0D, moveSpeed * 1.3F);
 
-				//  4. 触发跳劈判定！在 4~8 格绝佳安全距离，25% 概率发起空中死斗
+				//  在 4~8 格绝佳安全距离，25% 概率发起跳劈
 				if (this.actionDelayTimer <= 0 && dist >= 4.0D && dist <= 8.0D) {
 					if (theMaid.getRNG().nextInt(100) < 25) {
 						this.isJumpSlashing = true;
 						this.jumpSlashTimer = 0;
 						
-						// 蓄力起跳音效与红温警告
 						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_ENDERDRAGON_FLAP, 1.0F, 1.2F);
 						theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true);
 						
-						// 关闭重力，赋予起跳速度
-						theMaid.setNoGravity(true);
-						theMaid.motionY = 0.65D; 
+						//  物理自然起跳，不立刻接管重力
+						theMaid.motionY = 0.55D; 
 						
-						// 记录惯性矢量 (稍微带点预判)
-						this.jumpDirX = dirX * 0.7D;
-						this.jumpDirZ = dirZ * 0.7D;
-						return; // 起跳直接结束本回合逻辑
+						this.jumpDirX = dirX * 0.6D;
+						this.jumpDirZ = dirZ * 0.6D;
+						return; 
 					}
 				}
 
 			} 
 			else if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
-				// 常规高移速追踪
 				rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
 				double distToTarget = theMaid.getDistanceSq(entityTarget);
 				float burstSpeed = moveSpeed;
@@ -467,7 +460,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 		attackRangeSq *= attackRangeSq;
 		
-		// 绝境边缘试探
 		if (this.isKitingPhase) attackRangeSq = Math.max(attackRangeSq, 9.0D);
 
 		double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
