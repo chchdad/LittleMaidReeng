@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (修复物理粘滞 + 潜行拉扯测试 + 绝境动作绝对熔断)
+ * メイドさんの直接攻撃系処理 (原版小白走位复刻 + 绝境绝对熔断阻断 + 完整保留常规连招)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -205,25 +205,111 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		// 0. 绝境状态机与强制动作熔断机制 (10% - 20% 阈值)
+		// 0. 绝境状态机 (10% - 20% 阈值)
 		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 		if (hpPct <= 0.10F) {
 			this.isKitingPhase = true;
-			// 🌟 终极熔断锁：只要在绝境，一切攻击性技能强制归零！
-			this.isJumpSlashing = false;
+			// 🌟 进入绝境瞬间强制清空一切攻击姿态
 			this.isDashBuff = false;
 			this.pendingDash = false;
 			this.pendingBackstep = false;
-			theMaid.setNoGravity(false); // 安全重置重力
+			if (this.isJumpSlashing) {
+				this.isJumpSlashing = false;
+				theMaid.setNoGravity(false);
+			}
+			theMaid.setBloodsuck(false);
+			this.setMaidOverDrive(0);
+			this.rescueBerserkTimer = 0;
 		} else if (hpPct >= 0.20F) {
 			this.isKitingPhase = false;
 		}
 
 		// =======================================================
-		// 🌟 终极跳劈状态机 (被移出绝境，仅在常规状态可用)
+		// 🌟 1. 绝境：原版小白拉扯走位 (绝对熔断区)
 		// =======================================================
-		if (this.isJumpSlashing && !this.isKitingPhase) {
+		if (this.isKitingPhase) {
+			// 废弃原版寻路系统，防止贴脸导致寻路失效死循环
+			theMaid.getNavigator().clearPath();
+			
+			if (--this.dodgeCooldown <= 0) {
+				this.strafingClockwise = theMaid.getRNG().nextBoolean();
+				this.dodgeCooldown = 20 + theMaid.getRNG().nextInt(20);
+			}
+
+			double distSq = theMaid.getDistanceSq(entityTarget);
+			double forward = 0.0D;
+
+			// 小白核心逻辑：距离小于4(距离平方16)后退，距离大于7(距离平方49)前进
+			if (distSq < 16.0D) {
+				forward = -1.0D;
+			} else if (distSq > 49.0D) {
+				forward = 1.0D;
+			}
+
+			double strafe = this.strafingClockwise ? 1.0D : -1.0D;
+
+			// 将走位意图转换为实际的世界坐标系方向向量
+			double yaw = theMaid.rotationYaw * (Math.PI / 180.0D);
+			double strafeYaw = yaw + (Math.PI / 2.0D);
+
+			double dirX = -Math.sin(yaw) * forward - Math.sin(strafeYaw) * strafe;
+			double dirZ = Math.cos(yaw) * forward + Math.cos(strafeYaw) * strafe;
+
+			// 归一化向量，防止斜向走位超速
+			double len = Math.sqrt(dirX * dirX + dirZ * dirZ);
+			if (len > 0.0001D) {
+				dirX /= len;
+				dirZ /= len;
+			}
+
+			// 🌟 使用底层的 MoveHelper 强行移动 (绕开 PathFinder，彻底解决贴脸卡死)
+			theMaid.getMoveHelper().setMoveTo(theMaid.posX + dirX * 2.0D, theMaid.posY, theMaid.posZ + dirZ * 2.0D, moveSpeed * 1.0D);
+
+			if (logSpamLimiter % 10 == 0) {
+				System.out.println("[LMR-KITE-SKEL] HP: " + String.format("%.2f", hpPct) + 
+								   " | DistSq: " + String.format("%.2f", distSq) + 
+								   " | Fwd: " + forward + 
+								   " | Strafe: " + (this.strafingClockwise ? "R" : "L"));
+			}
+
+			// 🛑 绝对熔断：在绝境状态下，走到这里直接 return！
+			// 下面所有的跳劈、突进、挥剑统统跳过，她脑子里只有纯粹的控距！
+			return; 
+		}
+
+		// =======================================================
+		// 👇 以下为正常健康状态下的逻辑，绝境(拉扯)状态绝对进不来这里 👇
+		// =======================================================
+
+		if (rescueBerserkCooldown > 0) rescueBerserkCooldown--;
+
+		if (rescueBerserkTimer > 0) {
+			rescueBerserkTimer--;
+			if (rescueBerserkTimer <= 0) {
+				rescueBerserkCooldown = 200;
+				this.setMaidOverDrive(0);
+			}
+		}
+
+		if (rescueBerserkCooldown <= 0 && rescueBerserkTimer <= 0) {
+			Entity rawOwner = theMaid.getMaidMasterEntity();
+			if (rawOwner instanceof EntityLivingBase) {
+				EntityLivingBase owner = (EntityLivingBase) rawOwner;
+				if (owner.getRevengeTarget() == entityTarget && theMaid.getDistanceSq(entityTarget) >= 100.0D) { 
+					rescueBerserkTimer = 200; 
+					this.setMaidOverDrive(200); 
+					theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true); 
+				}
+			}
+		}
+
+		if (this.rescueBerserkTimer > 0) {
+			theMaid.setBloodsuck(true); 
+		}
+
+		// 🌟 终极跳劈状态机 
+		if (this.isJumpSlashing) {
 			this.jumpSlashTimer++;
 			theMaid.fallDistance = 0.0F;
 			
@@ -235,11 +321,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				if (this.jumpSlashTimer == 11) {
 					theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
 				}
-				
 				theMaid.setNoGravity(true);
 				theMaid.motionY -= 0.06D; 
 				if (theMaid.motionY < -0.5D) theMaid.motionY = -0.5D; 
-				
 				theMaid.motionX = this.jumpDirX * 1.1D;
 				theMaid.motionZ = this.jumpDirZ * 1.1D;
 			}
@@ -249,20 +333,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				if (distSq < 9.0D || theMaid.getEntityBoundingBox().grow(0.8D).intersects(entityTarget.getEntityBoundingBox())) {
 					entityTarget.hurtResistantTime = 0; 
 					theMaid.attackEntityAsMob(entityTarget);
-					
 					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.2F, 0.8F);
 					if (worldObj instanceof net.minecraft.world.WorldServer) {
-						((net.minecraft.world.WorldServer)worldObj).spawnParticle(
-							net.minecraft.util.EnumParticleTypes.CRIT, 
-							entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
-							25, 0.5D, 0.5D, 0.5D, 0.3D
-						);
+						((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.CRIT, entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 25, 0.5D, 0.5D, 0.5D, 0.3D);
 					}
-
 					theMaid.motionY = 0.3D;
 					theMaid.motionX = -this.jumpDirX * 0.3D;
 					theMaid.motionZ = -this.jumpDirZ * 0.3D;
-					
 					this.isJumpSlashing = false;
 					theMaid.setNoGravity(false);
 					this.actionDelayTimer = getWeaponCooldown(); 
@@ -277,10 +354,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return; 
 		}
 
-		// =======================================================
-		// 🌟 突进(漩涡)状态保护锁 (绝境直接屏蔽)
-		// =======================================================
-		if (this.isDashBuff && !this.isKitingPhase) {
+		// 🌟 突进(漩涡)状态保护锁
+		if (this.isDashBuff) {
 			this.dashTimer++;
 			if (this.dashTimer > 15 || (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D)) {
 				this.isDashBuff = false;
@@ -302,7 +377,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D).intersects(entityTarget.getEntityBoundingBox())) {
 					theMaid.attackEntityAsMob(entityTarget);
 					if (rescueBerserkTimer > 100) { rescueBerserkTimer = 100; this.setMaidOverDrive(100); }
-					
 					this.isDashBuff = false;
 					this.actionDelayTimer = getWeaponCooldown(); 
 					theMaid.motionX = 0.0D; theMaid.motionZ = 0.0D;
@@ -322,75 +396,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		if (this.dodgeCooldown > 0) this.dodgeCooldown--;
-
-		if (rescueBerserkCooldown > 0) rescueBerserkCooldown--;
-
-		if (rescueBerserkTimer > 0) {
-			rescueBerserkTimer--;
-			if (rescueBerserkTimer <= 0) {
-				rescueBerserkCooldown = 200;
-				this.setMaidOverDrive(0);
-			}
-		}
-
-		if (rescueBerserkCooldown <= 0 && rescueBerserkTimer <= 0 && !this.isKitingPhase) {
-			Entity rawOwner = theMaid.getMaidMasterEntity();
-			if (rawOwner instanceof EntityLivingBase) {
-				EntityLivingBase owner = (EntityLivingBase) rawOwner;
-				if (owner.getRevengeTarget() == entityTarget && theMaid.getDistanceSq(entityTarget) >= 100.0D) { 
-					rescueBerserkTimer = 200; 
-					this.setMaidOverDrive(200); 
-					theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true); 
-				}
-			}
-		}
-
-		if (this.isKitingPhase) {
-			theMaid.setBloodsuck(false);
-			this.rescueBerserkTimer = 0; 
-			this.setMaidOverDrive(0);
-		} else if (this.rescueBerserkTimer > 0) {
-			theMaid.setBloodsuck(true); 
-		}
-
-		// =======================================================
-		// 🌟 特技：躲避箭矢 
-		// =======================================================
-		if (this.isKitingPhase && this.dodgeCooldown <= 0) {
-			java.util.List<net.minecraft.entity.projectile.EntityArrow> arrows = worldObj.getEntitiesWithinAABB(net.minecraft.entity.projectile.EntityArrow.class, theMaid.getEntityBoundingBox().grow(6.0D, 3.0D, 6.0D));
-			boolean incoming = false;
-			for (net.minecraft.entity.projectile.EntityArrow arrow : arrows) {
-				if (arrow.isDead || arrow.shootingEntity == theMaid || arrow.shootingEntity == theMaid.getMaidMasterEntity()) continue;
-				if (arrow.motionX * arrow.motionX + arrow.motionY * arrow.motionY + arrow.motionZ * arrow.motionZ > 0.05D) {
-					incoming = true; break;
-				}
-			}
-			
-			if (incoming) {
-				double yaw = theMaid.rotationYaw * Math.PI / 180.0D;
-				double strafeYaw = yaw + (theMaid.getRNG().nextBoolean() ? Math.PI / 2.0D : -Math.PI / 2.0D); 
-				theMaid.motionX = -Math.sin(strafeYaw) * 0.6D;
-				theMaid.motionZ = Math.cos(strafeYaw) * 0.6D;
-				theMaid.motionY = 0.25D; 
-				theMaid.velocityChanged = true;
-				this.dodgeCooldown = (int)(getWeaponCooldown() * 1.5F); 
-				
-				theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_ARMOR_EQUIP_LEATHER, 1.0F, 1.5F);
-				if (worldObj instanceof net.minecraft.world.WorldServer) {
-					((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.CLOUD, theMaid.posX, theMaid.posY + 0.2D, theMaid.posZ, 10, 0.3D, 0.1D, 0.3D, 0.1D);
-				}
-			}
-		}
-
-		// =======================================================
-		// 3. FSM 动作连招预备 (绝境屏蔽)
-		// =======================================================
+		// 3. FSM 动作连招预备
 		boolean isFSM = pendingBackstep || pendingDash;
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
 			
-			if (isFSM && !this.isKitingPhase) {
+			if (isFSM) {
 				if (pendingBackstep) {
 					theMaid.motionX = 0.0D; theMaid.motionZ = 0.0D; theMaid.motionY = -0.08D; 
 					this.isGuard = true; 
@@ -439,58 +450,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		// =======================================================
-		// 🌟 寻路 (物理除胶 + 潜行测试 + 日志加强)
-		// =======================================================
+		// 常规冲锋寻路
 		if (--rerouteTimer <= 0) {
-			if (this.isKitingPhase) {
-				rerouteTimer = 5 + theMaid.getRNG().nextInt(5);
-				if (theMaid.getRNG().nextInt(4) == 0) this.strafingClockwise = !this.strafingClockwise;
-				
-				double d0 = entityTarget.posX - theMaid.posX; double d1 = entityTarget.posZ - theMaid.posZ; 
-				double dist = Math.sqrt(d0 * d0 + d1 * d1);
-				double dirX = d0 / dist; double dirZ = d1 / dist;
-				double strafeX = this.strafingClockwise ? -dirZ : dirZ; double strafeZ = this.strafingClockwise ? dirX : -dirX;
-				
-				double forward = 0;
-				float kitingSpeed = moveSpeed * 1.0F;
-
-				// 🌟 物理防粘滞：如果距离极近，强行切潜行速度，并物理反推除胶
-				if (dist <= 2.0D) {
-					forward = -1.0D;
-					kitingSpeed = moveSpeed * 0.4F; // 潜行测试
-					// 微小反方向推力，防止被怪物体积卡死寻路
-					theMaid.motionX -= dirX * 0.1D;
-					theMaid.motionZ -= dirZ * 0.1D;
-					theMaid.velocityChanged = true;
-				}
-				else if (dist < 4.0D) {
-					forward = -1.0D;
-					kitingSpeed = moveSpeed * 1.0F;
-				} 
-				else if (dist > 7.0D) {
-					forward = 1.0D;
-					kitingSpeed = moveSpeed * 1.0F;
-				} 
-				
-				double moveX = dirX * forward + strafeX * 0.8D; double moveZ = dirZ * forward + strafeZ * 0.8D;
-				
-				// 将目标坐标放远一点，防止贴脸时原版寻路找不到有效落脚点
-				double targetX = theMaid.posX + moveX * 5.0D;
-				double targetY = theMaid.posY;
-				double targetZ = theMaid.posZ + moveZ * 5.0D;
-				
-				boolean navSuccess = theMaid.getNavigator().tryMoveToXYZ(targetX, targetY, targetZ, kitingSpeed);
-
-				if (logSpamLimiter % 10 == 0) {
-					System.out.println("[LMR-KITE] HP: " + String.format("%.2f", hpPct) + 
-					                   " | Dist: " + String.format("%.2f", dist) + 
-					                   " | Forward: " + forward + 
-					                   " | SpeedMult: " + String.format("%.2f", (kitingSpeed/moveSpeed)) + 
-					                   " | NavSuccess: " + navSuccess);
-				}
-			} 
-			else if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
+			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
 				rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
 				double distToTarget = theMaid.getDistanceSq(entityTarget);
 				float burstSpeed = moveSpeed;
@@ -500,7 +462,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
 
-				// 🌟 常规跳劈：只能在正常战斗阶段 (非绝境) 触发！
 				double dist = Math.sqrt(distToTarget);
 				if (this.actionDelayTimer <= 0 && dist >= 4.0D && dist <= 8.0D && !this.isDashBuff) {
 					if (theMaid.getRNG().nextInt(100) < 25) {
@@ -510,24 +471,20 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true);
 						
 						theMaid.motionY = 0.45D; 
-						
 						double dirX = (entityTarget.posX - theMaid.posX) / dist;
 						double dirZ = (entityTarget.posZ - theMaid.posZ) / dist;
 						this.jumpDirX = dirX * 0.4D; this.jumpDirZ = dirZ * 0.4D;
 						return; 
 					}
 				}
-
 			} else {
 				theMaid.setAttackTarget(null);
 				theMaid.setRevengeTarget(null);
 			}
 		}
 
-		// =======================================================
-		// 5. 斩击判定 (屏蔽绝境)
-		// =======================================================
-		if (this.actionDelayTimer <= 0 && !this.isJumpSlashing && !this.isDashBuff && !this.isKitingPhase) {
+		// 5. 常规斩击判定
+		if (this.actionDelayTimer <= 0 && !this.isJumpSlashing && !this.isDashBuff) {
 			double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 			attackRangeSq *= attackRangeSq;
 
