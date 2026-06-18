@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (绝境纯净拉扯 + 状态机强行熔断 + KITE日志监控 + 常规跳劈)
+ * メイドさんの直接攻撃系処理 (修复物理粘滞 + 潜行拉扯测试 + 绝境动作绝对熔断)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -205,29 +205,23 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		// 0. 绝境状态机与强制熔断机制 (10% - 20% 阈值)
+		// 0. 绝境状态机与强制动作熔断机制 (10% - 20% 阈值)
 		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 		if (hpPct <= 0.10F) {
-			if (!this.isKitingPhase) {
-				// 🌟 状态熔断：进入绝境瞬间，强制清空一切攻击动作！绝对杜绝绝境突进和跳劈！
-				this.isDashBuff = false;
-				this.dashTimer = 0;
-				this.pendingBackstep = false;
-				this.pendingDash = false;
-				this.actionDelayTimer = 0;
-				if (this.isJumpSlashing) {
-					this.isJumpSlashing = false;
-					theMaid.setNoGravity(false);
-				}
-				this.isKitingPhase = true;
-			}
+			this.isKitingPhase = true;
+			// 🌟 终极熔断锁：只要在绝境，一切攻击性技能强制归零！
+			this.isJumpSlashing = false;
+			this.isDashBuff = false;
+			this.pendingDash = false;
+			this.pendingBackstep = false;
+			theMaid.setNoGravity(false); // 安全重置重力
 		} else if (hpPct >= 0.20F) {
 			this.isKitingPhase = false;
 		}
 
 		// =======================================================
-		// 🌟 终极跳劈状态机 (被移出绝境，仅在常规状态使用)
+		// 🌟 终极跳劈状态机 (被移出绝境，仅在常规状态可用)
 		// =======================================================
 		if (this.isJumpSlashing && !this.isKitingPhase) {
 			this.jumpSlashTimer++;
@@ -446,36 +440,53 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 🌟 寻路 (加入日志监控)
+		// 🌟 寻路 (物理除胶 + 潜行测试 + 日志加强)
 		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (this.isKitingPhase) {
 				rerouteTimer = 5 + theMaid.getRNG().nextInt(5);
 				if (theMaid.getRNG().nextInt(4) == 0) this.strafingClockwise = !this.strafingClockwise;
 				
-				double d0 = entityTarget.posX - theMaid.posX; double d1 = entityTarget.posZ - theMaid.posZ; double dist = Math.sqrt(d0 * d0 + d1 * d1);
+				double d0 = entityTarget.posX - theMaid.posX; double d1 = entityTarget.posZ - theMaid.posZ; 
+				double dist = Math.sqrt(d0 * d0 + d1 * d1);
 				double dirX = d0 / dist; double dirZ = d1 / dist;
 				double strafeX = this.strafingClockwise ? -dirZ : dirZ; double strafeZ = this.strafingClockwise ? dirX : -dirX;
 				
 				double forward = 0;
-				if (dist < 4.0D) forward = -1.2D; 
-				else if (dist > 7.0D) forward = 1.0D; 
+				float kitingSpeed = moveSpeed * 1.0F;
+
+				// 🌟 物理防粘滞：如果距离极近，强行切潜行速度，并物理反推除胶
+				if (dist <= 2.0D) {
+					forward = -1.0D;
+					kitingSpeed = moveSpeed * 0.4F; // 潜行测试
+					// 微小反方向推力，防止被怪物体积卡死寻路
+					theMaid.motionX -= dirX * 0.1D;
+					theMaid.motionZ -= dirZ * 0.1D;
+					theMaid.velocityChanged = true;
+				}
+				else if (dist < 4.0D) {
+					forward = -1.0D;
+					kitingSpeed = moveSpeed * 1.0F;
+				} 
+				else if (dist > 7.0D) {
+					forward = 1.0D;
+					kitingSpeed = moveSpeed * 1.0F;
+				} 
 				
 				double moveX = dirX * forward + strafeX * 0.8D; double moveZ = dirZ * forward + strafeZ * 0.8D;
 				
-				// 计算预计到达坐标
-				double targetX = theMaid.posX + moveX * 4.0D;
+				// 将目标坐标放远一点，防止贴脸时原版寻路找不到有效落脚点
+				double targetX = theMaid.posX + moveX * 5.0D;
 				double targetY = theMaid.posY;
-				double targetZ = theMaid.posZ + moveZ * 4.0D;
+				double targetZ = theMaid.posZ + moveZ * 5.0D;
 				
-				boolean navSuccess = theMaid.getNavigator().tryMoveToXYZ(targetX, targetY, targetZ, moveSpeed * 1.0F);
+				boolean navSuccess = theMaid.getNavigator().tryMoveToXYZ(targetX, targetY, targetZ, kitingSpeed);
 
-				// 🌟 日志监控：每 10 次 update 打印一次拉扯情况，防止刷屏
 				if (logSpamLimiter % 10 == 0) {
 					System.out.println("[LMR-KITE] HP: " + String.format("%.2f", hpPct) + 
 					                   " | Dist: " + String.format("%.2f", dist) + 
 					                   " | Forward: " + forward + 
-					                   " | Strafe: " + (this.strafingClockwise ? "Right" : "Left") + 
+					                   " | SpeedMult: " + String.format("%.2f", (kitingSpeed/moveSpeed)) + 
 					                   " | NavSuccess: " + navSuccess);
 				}
 			} 
@@ -489,7 +500,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
 
-				// 🌟 转移到正常攻击阶段的跳劈：绝境绝对不会触发！
+				// 🌟 常规跳劈：只能在正常战斗阶段 (非绝境) 触发！
 				double dist = Math.sqrt(distToTarget);
 				if (this.actionDelayTimer <= 0 && dist >= 4.0D && dist <= 8.0D && !this.isDashBuff) {
 					if (theMaid.getRNG().nextInt(100) < 25) {
