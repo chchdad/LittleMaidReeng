@@ -1,4 +1,4 @@
-package net.blacklab.lmr.entity.littlemaid.ai.attack;
+package net.blacklab.lmr.entity.littlemaid.ai.attack; 
 
 import firis.lmlib.api.constant.EnumSound;
 import net.blacklab.lmr.entity.littlemaid.EntityLittleMaid;
