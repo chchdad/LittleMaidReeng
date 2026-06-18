@@ -91,8 +91,8 @@ public class EntityMode_Archer extends EntityModeBase {
 			}
 			@Override
 			public void startExecuting() {
-				owner.setAttackTarget(this.attacker);
 				super.startExecuting();
+				owner.setAttackTarget(this.attacker);
 			}
 		});
 		
@@ -125,8 +125,8 @@ public class EntityMode_Archer extends EntityModeBase {
 
 			@Override
 			public void startExecuting() {
-				owner.setAttackTarget(this.targetToAttack);
 				super.startExecuting();
+				owner.setAttackTarget(this.targetToAttack);
 			}
 		});
 
@@ -153,8 +153,8 @@ public class EntityMode_Archer extends EntityModeBase {
 			}
 			@Override
 			public void startExecuting() {
-				owner.setAttackTarget(this.attacker);
 				super.startExecuting();
+				owner.setAttackTarget(this.attacker);
 			}
 		});
 		
@@ -187,8 +187,8 @@ public class EntityMode_Archer extends EntityModeBase {
 
 			@Override
 			public void startExecuting() {
-				owner.setAttackTarget(this.targetToAttack);
 				super.startExecuting();
+				owner.setAttackTarget(this.targetToAttack);
 			}
 		});
 
@@ -322,11 +322,9 @@ public class EntityMode_Archer extends EntityModeBase {
                 if (!isSafeMount) {
                     if (this.dismountCooldown <= 0) {
                         this.dismountTimer++;
-                        //  3 Tick = 0.15 秒反应
                         if (this.dismountTimer >= 3) {
                             owner.dismountRidingEntity();
                             this.dismountTimer = 0;
-                            //  0.5秒（10 Tick）冷却
                             this.dismountCooldown = 10;
                         }
                     }
