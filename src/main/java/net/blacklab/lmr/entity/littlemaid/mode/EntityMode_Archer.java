@@ -106,7 +106,7 @@ public class EntityMode_Archer extends EntityModeBase {
 				if (owner.getMaidMasterEntity() == null) return false;
 				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || !target.isEntityAlive() || owner.getIFF(target)) return false;
+				if (target == null || !target.isEntityAlive()) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
@@ -115,12 +115,23 @@ public class EntityMode_Archer extends EntityModeBase {
 					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
+				int hits = hitCountMap.getOrDefault(target.getEntityId(), 0);
 				float missingHealth = target.getMaxHealth() - target.getHealth();
-				if (missingHealth >= 10.0F || hitCountMap.getOrDefault(target.getEntityId(), 0) >= 6) {
-					this.targetToAttack = target;
-					return true;
+				boolean isFriendly = owner.getIFF(target);
+
+				if (isFriendly) {
+					if (hits >= 6) {
+						this.targetToAttack = target;
+						return true;
+					}
+					return false;
+				} else {
+					if (missingHealth >= 10.0F || hits >= 6) {
+						this.targetToAttack = target;
+						return true;
+					}
+					return false;
 				}
-				return false;
 			}
 
 			@Override
@@ -168,7 +179,7 @@ public class EntityMode_Archer extends EntityModeBase {
 				if (owner.getMaidMasterEntity() == null) return false;
 				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || !target.isEntityAlive() || owner.getIFF(target)) return false;
+				if (target == null || !target.isEntityAlive()) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
@@ -177,12 +188,23 @@ public class EntityMode_Archer extends EntityModeBase {
 					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
+				int hits = hitCountMap.getOrDefault(target.getEntityId(), 0);
 				float missingHealth = target.getMaxHealth() - target.getHealth();
-				if (missingHealth >= 10.0F || hitCountMap.getOrDefault(target.getEntityId(), 0) >= 6) {
-					this.targetToAttack = target;
-					return true;
+				boolean isFriendly = owner.getIFF(target);
+
+				if (isFriendly) {
+					if (hits >= 6) {
+						this.targetToAttack = target;
+						return true;
+					}
+					return false;
+				} else {
+					if (missingHealth >= 10.0F || hits >= 6) {
+						this.targetToAttack = target;
+						return true;
+					}
+					return false;
 				}
-				return false;
 			}
 
 			@Override
