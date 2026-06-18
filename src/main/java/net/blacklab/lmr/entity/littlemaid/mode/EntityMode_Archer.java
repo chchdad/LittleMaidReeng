@@ -127,7 +127,7 @@ public class EntityMode_Archer extends EntityModeBase {
 				if (!(rawMaster instanceof EntityLivingBase)) return false;
 				EntityLivingBase master = (EntityLivingBase) rawMaster;
 
-				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(24.0D, 12.0D, 24.0D));
+				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(64.0D, 32.0D, 64.0D));
 
 				EntityLivingBase bestTarget = null;
 				double closestDist = Double.MAX_VALUE;
@@ -189,6 +189,7 @@ public class EntityMode_Archer extends EntityModeBase {
 			public void startExecuting() {
 				super.startExecuting();
 				owner.setAttackTarget(this.target);
+				System.out.println("[LMR-TARGET-AI] 确认集火指令，越权强杀目标: " + this.target.getName());
 			}
 		});
 
@@ -251,7 +252,7 @@ public class EntityMode_Archer extends EntityModeBase {
 				if (!(rawMaster instanceof EntityLivingBase)) return false;
 				EntityLivingBase master = (EntityLivingBase) rawMaster;
 
-				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(24.0D, 12.0D, 24.0D));
+				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(64.0D, 32.0D, 64.0D));
 
 				EntityLivingBase bestTarget = null;
 				double closestDist = Double.MAX_VALUE;
@@ -313,6 +314,7 @@ public class EntityMode_Archer extends EntityModeBase {
 			public void startExecuting() {
 				super.startExecuting();
 				owner.setAttackTarget(this.target);
+				System.out.println("[LMR-TARGET-AI] 确认集火指令，越权强杀目标: " + this.target.getName());
 			}
 		});
 
@@ -401,6 +403,10 @@ public class EntityMode_Archer extends EntityModeBase {
 		if (!isInventoryArrowItem()) return false;
 		if (!MaidHelper.isTargetReachable(owner, pEntity, 18 * 18)) return false;
 		
+		if (!(pEntity instanceof IMob)) {
+			return false;
+		}
+		
 		if (pEntity instanceof EntityCreeper) {
 			boolean attackingOwner = owner.getMaidMasterEntity() != null && owner.getMaidMasterEntity().equals(((EntityCreeper) pEntity).getAttackTarget());
 			boolean attackingMaid = pEntity.equals(owner.getRevengeTarget()) || owner.equals(((EntityCreeper)pEntity).getAttackTarget());
@@ -475,7 +481,7 @@ public class EntityMode_Archer extends EntityModeBase {
 					int ly = (int)owner.posY;
 					int lz = (int)owner.posZ;
 					IBlockState iState;
-					if (lworld.isAirBlock(new BlockPos(lx, ly, lz)) || (iState = lworld.getBlockState(new BlockPos(lx, ly, lz))).getBlock().getMaterial(iState).getCanBurn()) {
+					if (lworld.isAirBlock(new BlockPos(lx,দাস ly, lz)) || (iState = lworld.getBlockState(new BlockPos(lx, ly, lz))).getBlock().getMaterial(iState).getCanBurn()) {
 						lworld.playSound(lx + 0.5D, ly + 0.5D, lz + 0.5D, SoundEvent.REGISTRY.getObject(new ResourceLocation("item.firecharge.use")), SoundCategory.NEUTRAL, 1.0F, owner.getRNG().nextFloat() * 0.4F + 0.8F, false);
 						lworld.setBlockState(new BlockPos(lx, ly, lz), Blocks.FIRE.getDefaultState());
 					}
