@@ -46,7 +46,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 	protected static final int CHARGE_COUNTER_MAX_VALUE = 60;
 	
 	protected int dismountTimer = 0;
-	protected int dismountCooldown = 0;
 
 	public EntityMode_Fencer(EntityLittleMaid pEntity) {
 		super(pEntity);
@@ -71,7 +70,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
-		// 优先级 1：先解决离主人近的怪！(半径4格危险距离)
 		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			@Override
 			public boolean shouldExecute() {
@@ -112,7 +110,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 			}
 		});
 
-		//  优先级 2：64格+伤害追踪
 		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private java.util.Map<Integer, Float> healthMap = new java.util.HashMap<>();
@@ -123,7 +120,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (!(rawMaster instanceof EntityLivingBase)) return false;
 				EntityLivingBase master = (EntityLivingBase) rawMaster;
 
-				//  64格大范围扫描
 				List<EntityLivingBase> list = owner.getEntityWorld().getEntitiesWithinAABB(EntityLivingBase.class, master.getEntityBoundingBox().grow(64.0D, 32.0D, 64.0D));
 
 				EntityLivingBase bestTarget = null;
@@ -143,7 +139,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 						if (lastHealth == null) {
 							healthMap.put(id, currentHealth);
 						} else if (currentHealth < lastHealth) {
-							//  只要目标对主人的仇恨在，且掉血了，算作集火计数
 							if (isRevenge) {
 								hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 							}
@@ -187,8 +182,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 			public void startExecuting() {
 				super.startExecuting();
 				owner.setAttackTarget(this.target);
-				// 只有确认发动致命一击时才播报
-				System.out.println("[LMR-TARGET-AI] 确认集火，强杀目标: " + this.target.getName());
+				System.out.println("[LMR-TARGET-AI] 确认指令，杀目标: " + this.target.getName());
 			}
 		});
 
@@ -313,7 +307,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 			public void startExecuting() {
 				super.startExecuting();
 				owner.setAttackTarget(this.target);
-				System.out.println("[LMR-TARGET-AI] 确认集火指令，越权强杀目标: " + this.target.getName());
+				System.out.println("[LMR-TARGET-AI] 确认集火，杀目标: " + this.target.getName());
 			}
 		});
 
@@ -458,11 +452,7 @@ public class EntityMode_Fencer extends EntityModeBase {
     public void updateAITick(String pMode) {
         super.updateAITick(pMode);
         
-        if (this.dismountCooldown > 0) {
-            this.dismountCooldown--;
-        }
-        
-        //  0.15秒下车 + 0.15秒冷却
+        //  0.15秒下车前摇
         if (owner.isRiding()) {
             Entity mount = owner.getRidingEntity();
             if (mount instanceof EntityLivingBase) {
@@ -477,13 +467,10 @@ public class EntityMode_Fencer extends EntityModeBase {
                 }
                 
                 if (!isSafeMount) {
-                    if (this.dismountCooldown <= 0) {
-                        this.dismountTimer++;
-                        if (this.dismountTimer >= 3) { // 3 Tick = 0.15s
-                            owner.dismountRidingEntity();
-                            this.dismountTimer = 0;
-                            this.dismountCooldown = 3; 
-                        }
+                    this.dismountTimer++;
+                    if (this.dismountTimer >= 3) { // 3 Tick = 0.15s 前摇
+                        owner.dismountRidingEntity();
+                        this.dismountTimer = 0;
                     }
                 } else {
                     this.dismountTimer = 0; 
