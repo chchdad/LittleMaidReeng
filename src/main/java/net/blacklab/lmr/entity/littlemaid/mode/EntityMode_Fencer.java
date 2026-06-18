@@ -45,6 +45,10 @@ public class EntityMode_Fencer extends EntityModeBase {
 	protected static final AttributeModifier CHARGING_BOOST_MODIFIER = new AttributeModifier(CHARGING_BOOST_UUID, LittleMaidReengaged.MODID.concat(":fencer_charge_boost"), 0.2d, 0);
 
 	protected static final int CHARGE_COUNTER_MAX_VALUE = 60;
+	
+	protected int dismountTimer = 0;
+	protected int dismountCooldown = 0;
+
 	public EntityMode_Fencer(EntityLittleMaid pEntity) {
 		super(pEntity);
 		isAnytimeUpdate = true;
@@ -68,7 +72,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 		ltasks[0] = pDefaultMove;
 		ltasks[1] = new EntityAITasks(owner.aiProfiler);
 
-		//  优先级1：采用自定义靶向系统，强制中断她手头的任务立刻保护！
 		ltasks[1].addTask(1, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private EntityLivingBase attacker;
 			@Override
@@ -83,13 +86,11 @@ public class EntityMode_Fencer extends EntityModeBase {
 			}
 			@Override
 			public void startExecuting() {
-				// 强制掰过女仆的头，直接把仇恨死死锁定在打主人的怪身上！
 				owner.setAttackTarget(this.attacker);
 				super.startExecuting();
 			}
 		});
 
-		//  优先级2：持久化独立记仇（记录每个怪的被砍次数，切怪不丢失）
 		ltasks[1].addTask(2, new net.minecraft.entity.ai.EntityAITarget(owner, false) {
 			private java.util.Map<Integer, Integer> hitCountMap = new java.util.HashMap<>();
 			private int lastAttackTick = 0;
@@ -129,7 +130,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 		owner.addMaidMode(mmode_Fencer, ltasks);
 
 
-		// Bloodsucker 同理
 		EntityAITasks[] ltasks2 = new EntityAITasks[2];
 		ltasks2[0] = pDefaultMove;
 		ltasks2[1] = new EntityAITasks(owner.aiProfiler);
@@ -310,7 +310,6 @@ public class EntityMode_Fencer extends EntityModeBase {
 			return false;
 		}
 		
-		// 如果苦力怕的目标是主人，或者是女仆自己，允许女仆痛下杀手！
 		if (pEntity instanceof EntityCreeper) {
 			boolean attackingOwner = owner.getMaidMasterEntity() != null && owner.getMaidMasterEntity().equals(((EntityCreeper) pEntity).getAttackTarget());
 			boolean attackingMaid = pEntity.equals(owner.getRevengeTarget()) || owner.equals(((EntityCreeper)pEntity).getAttackTarget());
@@ -325,13 +324,16 @@ public class EntityMode_Fencer extends EntityModeBase {
     public void updateAITick(String pMode) {
         super.updateAITick(pMode);
         
-        // 自动脱离未知生物坐骑（防止被别的模组的怪强行抓走骑乘）
+        if (this.dismountCooldown > 0) {
+            this.dismountCooldown--;
+        }
+        
+        //  自动脱离未知生物坐骑
         if (owner.isRiding()) {
             Entity mount = owner.getRidingEntity();
             if (mount instanceof EntityLivingBase) {
                 boolean isSafeMount = false;
                 
-                // 如果是主人驯服的宠物（如狗、猫）或者马匹，允许骑乘
                 if (mount instanceof net.minecraft.entity.passive.EntityTameable) {
                     UUID tameOwner = ((net.minecraft.entity.passive.EntityTameable)mount).getOwnerId();
                     if (tameOwner != null && tameOwner.equals(owner.getMaidMasterUUID())) isSafeMount = true;
@@ -340,11 +342,25 @@ public class EntityMode_Fencer extends EntityModeBase {
                     if (horseOwner != null && horseOwner.equals(owner.getMaidMasterUUID())) isSafeMount = true;
                 }
                 
-                // 除了主人的宠物，其他的生物坐骑一律自动潜行脱离
                 if (!isSafeMount) {
-                    owner.dismountRidingEntity();
+                    if (this.dismountCooldown <= 0) {
+                        this.dismountTimer++;
+                        //  3 Tick = 0.15 秒反应
+                        if (this.dismountTimer >= 3) {
+                            owner.dismountRidingEntity();
+                            this.dismountTimer = 0;
+                            //  给 0.5 秒（10 Tick）的小冷却，减少鬼畜死机的可能
+                            this.dismountCooldown = 10; 
+                        }
+                    }
+                } else {
+                    this.dismountTimer = 0; 
                 }
+            } else {
+                this.dismountTimer = 0; 
             }
+        } else {
+            this.dismountTimer = 0; 
         }
     }
 
