@@ -86,8 +86,10 @@ public class EntityMode_Fencer extends EntityModeBase {
 			}
 			@Override
 			public void startExecuting() {
-				owner.setAttackTarget(this.attacker);
+				// 先让底层系统执行，它会把目标刷成 null
 				super.startExecuting();
+				// 把真正的目标塞回去
+				owner.setAttackTarget(this.attacker);
 			}
 		});
 
@@ -120,8 +122,9 @@ public class EntityMode_Fencer extends EntityModeBase {
 
 			@Override
 			public void startExecuting() {
-				owner.setAttackTarget(this.targetToAttack);
+				// 修复执行顺序，保证 6次/10点伤害 的锁敌不会丢失
 				super.startExecuting();
+				owner.setAttackTarget(this.targetToAttack);
 			}
 		});
 
@@ -148,8 +151,8 @@ public class EntityMode_Fencer extends EntityModeBase {
 			}
 			@Override
 			public void startExecuting() {
-				owner.setAttackTarget(this.attacker);
 				super.startExecuting();
+				owner.setAttackTarget(this.attacker);
 			}
 		});
 		
@@ -182,8 +185,8 @@ public class EntityMode_Fencer extends EntityModeBase {
 
 			@Override
 			public void startExecuting() {
-				owner.setAttackTarget(this.targetToAttack);
 				super.startExecuting();
+				owner.setAttackTarget(this.targetToAttack);
 			}
 		});
 
@@ -345,11 +348,9 @@ public class EntityMode_Fencer extends EntityModeBase {
                 if (!isSafeMount) {
                     if (this.dismountCooldown <= 0) {
                         this.dismountTimer++;
-                        //  3 Tick = 0.15 秒反应
                         if (this.dismountTimer >= 3) {
                             owner.dismountRidingEntity();
                             this.dismountTimer = 0;
-                            //  给 0.5 秒（10 Tick）的小冷却，减少鬼畜死机的可能
                             this.dismountCooldown = 10; 
                         }
                     }
