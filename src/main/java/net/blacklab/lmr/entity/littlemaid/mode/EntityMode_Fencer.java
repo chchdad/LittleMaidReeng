@@ -80,7 +80,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (newAttacker == null || !newAttacker.isEntityAlive() || owner.getIFF(newAttacker) || !(newAttacker instanceof IMob)) {
 					return false;
 				}
-				// 🌟 修复鬼步核心：精准赋值给底层 target 变量
+				//  赋值给底层 target 变量
 				this.target = newAttacker;
 				return true;
 			}
@@ -116,13 +116,13 @@ public class EntityMode_Fencer extends EntityModeBase {
 
 				if (isFriendly) {
 					if (hits >= 6) {
-						this.target = potentialTarget; // 🌟 修复鬼步核心
+						this.target = potentialTarget; //  修复鬼步
 						return true;
 					}
 					return false;
 				} else {
 					if (missingHealth >= 10.0F || hits >= 6) {
-						this.target = potentialTarget; // 🌟 修复鬼步核心
+						this.target = potentialTarget; //  修复鬼步
 						return true;
 					}
 					return false;
