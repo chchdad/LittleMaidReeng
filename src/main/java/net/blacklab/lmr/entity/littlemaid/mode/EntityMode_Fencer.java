@@ -86,9 +86,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 			}
 			@Override
 			public void startExecuting() {
-				// 先让底层系统执行，它会把目标刷成 null
 				super.startExecuting();
-				// 把真正的目标塞回去
 				owner.setAttackTarget(this.attacker);
 			}
 		});
@@ -103,7 +101,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (owner.getMaidMasterEntity() == null) return false;
 				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || !target.isEntityAlive() || owner.getIFF(target)) return false;
+				if (target == null || !target.isEntityAlive()) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
@@ -112,17 +110,29 @@ public class EntityMode_Fencer extends EntityModeBase {
 					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
+				int hits = hitCountMap.getOrDefault(target.getEntityId(), 0);
 				float missingHealth = target.getMaxHealth() - target.getHealth();
-				if (missingHealth >= 10.0F || hitCountMap.getOrDefault(target.getEntityId(), 0) >= 6) {
-					this.targetToAttack = target;
-					return true;
+				boolean isFriendly = owner.getIFF(target);
+
+				// 🌟 破除 IFF 锁定：如果是友军（如村民），必须连续打 6 次才能证明是“蓄意谋杀”，绝不因高伤害误伤
+				if (isFriendly) {
+					if (hits >= 6) {
+						this.targetToAttack = target;
+						return true;
+					}
+					return false;
+				} else {
+					// 🌟 正常怪物：满足伤害或者次数任意一条即可
+					if (missingHealth >= 10.0F || hits >= 6) {
+						this.targetToAttack = target;
+						return true;
+					}
+					return false;
 				}
-				return false;
 			}
 
 			@Override
 			public void startExecuting() {
-				// 修复执行顺序，保证 6次/10点伤害 的锁敌不会丢失
 				super.startExecuting();
 				owner.setAttackTarget(this.targetToAttack);
 			}
@@ -166,7 +176,7 @@ public class EntityMode_Fencer extends EntityModeBase {
 				if (owner.getMaidMasterEntity() == null) return false;
 				EntityLivingBase target = owner.getMaidMasterEntity().getLastAttackedEntity();
 				
-				if (target == null || !target.isEntityAlive() || owner.getIFF(target)) return false;
+				if (target == null || !target.isEntityAlive()) return false;
 
 				int currentTick = owner.getMaidMasterEntity().getLastAttackedEntityTime();
 				if (currentTick != lastAttackTick) {
@@ -175,12 +185,23 @@ public class EntityMode_Fencer extends EntityModeBase {
 					hitCountMap.put(id, hitCountMap.getOrDefault(id, 0) + 1);
 				}
 
+				int hits = hitCountMap.getOrDefault(target.getEntityId(), 0);
 				float missingHealth = target.getMaxHealth() - target.getHealth();
-				if (missingHealth >= 10.0F || hitCountMap.getOrDefault(target.getEntityId(), 0) >= 6) {
-					this.targetToAttack = target;
-					return true;
+				boolean isFriendly = owner.getIFF(target);
+
+				if (isFriendly) {
+					if (hits >= 6) {
+						this.targetToAttack = target;
+						return true;
+					}
+					return false;
+				} else {
+					if (missingHealth >= 10.0F || hits >= 6) {
+						this.targetToAttack = target;
+						return true;
+					}
+					return false;
 				}
-				return false;
 			}
 
 			@Override
@@ -331,7 +352,6 @@ public class EntityMode_Fencer extends EntityModeBase {
             this.dismountCooldown--;
         }
         
-        //  自动脱离未知生物坐骑
         if (owner.isRiding()) {
             Entity mount = owner.getRidingEntity();
             if (mount instanceof EntityLivingBase) {
