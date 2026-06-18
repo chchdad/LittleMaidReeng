@@ -455,7 +455,7 @@ public class EntityMode_Archer extends EntityModeBase {
                         if (this.dismountTimer >= 3) {
                             owner.dismountRidingEntity();
                             this.dismountTimer = 0;
-                            this.dismountCooldown = 10;
+                            this.dismountCooldown = 3;
                         }
                     }
                 } else {
