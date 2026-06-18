@@ -32,7 +32,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected boolean isDashBuff = false; 
 	public boolean isGuard;
 
-	//  狂暴距离补偿核心变量
+	//  狂暴距离补偿变量
 	protected int rescueBerserkTimer = 0;      
 	protected int rescueBerserkCooldown = 0;   
 
@@ -156,7 +156,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		// 1. 红温超视距救主狂暴(距离补偿 + 10秒倒计时)
+		// 1. 高视距救主狂暴(距离补偿和10秒倒计时)
 		// =======================================================
 		if (rescueBerserkCooldown > 0) {
 			rescueBerserkCooldown--;
@@ -189,12 +189,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		// 夺 AI 对血量狂暴的控制权，交由 EntityLittleMaid 管理
-		// 这里只保留“超视距救主”的强制红温
+		// 剥夺 AI 对血量狂暴的控制，交由 EntityLittleMaid 管理
+		// 这里只保留“超视距救驾”的强制红温权限
 		if (this.rescueBerserkTimer > 0) {
 			theMaid.setBloodsuck(true); 
 		}
-
 		
 		// =======================================================
 		// 2. Dash 追击系统
@@ -273,7 +272,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				
 				if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 2 == 0) {
 					((net.minecraft.world.WorldServer)worldObj).spawnParticle(
-						net.minecraft.util.EnumParticleTypes.CRIT, //  充满攻击性的暴击粒子
+						net.minecraft.util.EnumParticleTypes.CRIT, 
 						theMaid.posX + (theMaid.getRNG().nextFloat()-0.5), 
 						theMaid.posY + 0.5D, 
 						theMaid.posZ + (theMaid.getRNG().nextFloat()-0.5), 
@@ -302,12 +301,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						}
 					}
 					
-					// 如果穿了装备，叠加皮甲摩擦声
+					//  如果穿了装备，叠加皮甲摩擦
 					if (hasArmor) {
 						theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_ARMOR_EQUIP_LEATHER, 0.8F, 1.2F);
 					}
 					
-					//  无论是否穿甲，必定播放女仆的 Target 锁定音效
+					//  无论是否穿甲，必播放女仆的 Target 锁定音效
 					theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 					
 					double dX = theMaid.posX - entityTarget.posX;
@@ -327,7 +326,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (pendingDash) {
 					pendingDash = false;
 					
-					//  拔刀突刺，模拟挥剑落空短促破空的“呼”声
+					//  挥剑落空短促破空的“呼”声
 					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_NODAMAGE, 1.0F, 0.8F);
 					
 					this.isGuard = false;
@@ -363,7 +362,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				double distToTarget = theMaid.getDistanceSq(entityTarget);
 				float burstSpeed = moveSpeed;
 				
-				if (isRescueBerserk) {
+				//  直接判断计时器
+				if (this.rescueBerserkTimer > 0) {
 					burstSpeed = moveSpeed * 1.8F; 
 				} else if (distToTarget < 36.0D) {
 					burstSpeed = moveSpeed * 1.5F; 
@@ -458,6 +458,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					}
 				}
 				
+				//  向女仆本体查询是否处于红温狂暴状态，协同逻辑
+				boolean isBerserk = theMaid.isBloodsuck();
 				float triggerChance = isBerserk ? 0.50F : 0.25F;
 				if (theMaid.getRNG().nextFloat() < triggerChance) {
 					this.actionDelayTimer = isBerserk ? 20 : 25; 
