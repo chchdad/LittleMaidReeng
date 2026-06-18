@@ -47,7 +47,6 @@ public class EntityMode_Archer extends EntityModeBase {
 	public static final List<Class <? extends Item>> arrowClassList = initArrowClassList();
 	
 	protected int dismountTimer = 0;
-	protected int dismountCooldown = 0;
 	
 	public static List<Class <? extends Item>> initArrowClassList() {
 		List<Class <? extends Item>> list = new ArrayList<>();
@@ -189,7 +188,7 @@ public class EntityMode_Archer extends EntityModeBase {
 			public void startExecuting() {
 				super.startExecuting();
 				owner.setAttackTarget(this.target);
-				System.out.println("[LMR-TARGET-AI] 确认集火指令，越权强杀目标: " + this.target.getName());
+				System.out.println("[LMR-TARGET-AI] 确认指令，杀目标: " + this.target.getName());
 			}
 		});
 
@@ -314,7 +313,7 @@ public class EntityMode_Archer extends EntityModeBase {
 			public void startExecuting() {
 				super.startExecuting();
 				owner.setAttackTarget(this.target);
-				System.out.println("[LMR-TARGET-AI] 确认集火指令，越权强杀目标: " + this.target.getName());
+				System.out.println("[LMR-TARGET-AI] 确认集火，杀目标: " + this.target.getName());
 			}
 		});
 
@@ -433,10 +432,6 @@ public class EntityMode_Archer extends EntityModeBase {
 			owner.setAttackTarget(null);
 		}
 		
-        if (this.dismountCooldown > 0) {
-            this.dismountCooldown--;
-        }
-		
         if (owner.isRiding()) {
             Entity mount = owner.getRidingEntity();
             if (mount instanceof EntityLivingBase) {
@@ -450,13 +445,10 @@ public class EntityMode_Archer extends EntityModeBase {
                 }
                 
                 if (!isSafeMount) {
-                    if (this.dismountCooldown <= 0) {
-                        this.dismountTimer++;
-                        if (this.dismountTimer >= 3) {
-                            owner.dismountRidingEntity();
-                            this.dismountTimer = 0;
-                            this.dismountCooldown = 3;
-                        }
+                    this.dismountTimer++;
+                    if (this.dismountTimer >= 3) {
+                        owner.dismountRidingEntity();
+                        this.dismountTimer = 0;
                     }
                 } else {
                     this.dismountTimer = 0;
