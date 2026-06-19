@@ -6,13 +6,14 @@ import net.blacklab.lmr.entity.littlemaid.ai.IEntityAILM;
 import net.blacklab.lmr.util.helper.MaidHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.ai.EntityAIBase;
 import net.minecraft.pathfinding.Path;
 import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (动态仇恨雷达 + 强力女仆战术风筝 + 免死背身盾反)
+ * メイドさんの直接攻撃系処理 (动态仇恨风筝逃跑 + 免死背身盾反)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -310,12 +311,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			
 			double distSq = theMaid.getDistanceSq(entityTarget);
 			
-			// 🌟 动态安全距离测算 (神级风筝逻辑)
-			// 判断怪物当前是不是正在死死咬着女仆不放
-			boolean isChasedByMonster = (entityTarget.getAttackTarget() == theMaid || entityTarget.getRevengeTarget() == theMaid);
+			// 🌟 动态安全距离测算 (安全转型 EntityLiving 判定)
+			boolean isChasedByMonster = (entityTarget.getRevengeTarget() == theMaid);
+			if (entityTarget instanceof EntityLiving) {
+				isChasedByMonster = isChasedByMonster || (((EntityLiving)entityTarget).getAttackTarget() == theMaid);
+			}
 			
-			// 如果怪在追杀女仆，必须跑出 10 格 (100.0D) 外才算安全；
-			// 如果怪没有追女仆 (比如去追主人了)，退开 5 格 (25.0D) 就可以提前解除警报回去护主了！
 			double safeDistSq = isChasedByMonster ? 100.0D : 25.0D;
 
 			if (distSq < safeDistSq) { 
@@ -350,11 +351,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					if (isChasedByMonster) {
 						System.out.println("[LMR-KITE-RADAR] 🛑 成功把怪物风筝到 10 格外，警报解除，去找主人！");
 					} else {
-						System.out.println("[LMR-KITE-RADAR] 🛑 怪物仇恨转移，提早解除警报，赶紧回防主人身边！");
+						System.out.println("[LMR-KITE-RADAR] 🛑 怪物仇恨转移，提早解除警报，去找主人！");
 					}
 				}
 				
-				// 主动终结当前攻击 AI，将身体控制权还给“跟随主人”AI
 				this.threatTarget = null;
 				theMaid.setAttackTarget(null);
 				theMaid.setRevengeTarget(null);
