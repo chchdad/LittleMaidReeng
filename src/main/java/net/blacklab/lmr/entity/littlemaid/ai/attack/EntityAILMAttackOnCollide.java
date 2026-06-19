@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (保留常规 + 绝境专属：苦力怕式拉扯 + 生存模式3格极限刺杀)
+ * メイドさんの直接攻撃系処理 (修复飙车穿墙 + 撞墙急停 + 苦力怕式拉扯 + 极限距离刺杀)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -113,7 +113,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 		}
 		
-		// 健康时才在起始时直接规划冲锋路线，绝境有自己的规划
 		if (!this.isKitingPhase) {
 			theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
 		}
@@ -207,7 +206,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return;
 		}
 
-		// 常规阶段一直盯怪，绝境逃命阶段不强制盯
 		if (!this.isKitingPhase) {
 			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 		}
@@ -235,7 +233,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 🌟 1. 绝境专属：苦力怕式 一击脱离 (Hit & Run) + 极限距离刺杀
+		// 🌟 1. 绝境专属：苦力怕式 一击脱离 (Hit & Run) + 防穿墙
 		// =======================================================
 		if (this.isKitingPhase) {
 			
@@ -264,7 +262,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 				theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + theMaid.getRNG().nextFloat() * 0.4F);
 				
-				// 挨打后强制拉开距离（充当点燃引线）
 				this.actionDelayTimer = getWeaponCooldown() + 10; 
 				return; 
 			}
@@ -275,33 +272,31 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 			// 🗡️ 刺客拉扯状态机
 			if (this.actionDelayTimer > 0) {
-				// 【逃离阶段】武器还在冷却中，把怪物当成苦力怕往回跑！
+				// 【逃离阶段】
 				double distSq = theMaid.getDistanceSq(entityTarget);
-				if (distSq < 64.0D) { // 小于 8 格疯狂往外跑
+				if (distSq < 64.0D) { 
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
 						net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
 							theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
 						);
 						if (safePos != null) {
-							theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F); 
+							// 🌟 修复飙车：将 1.5F 降至 1.25F (原版疾跑速度)，跑得快但不鬼畜
+							theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.25F); 
 						}
 					}
 				} else {
-					// 距离安全，停泊等待冷却
 					if (!theMaid.getNavigator().noPath()) {
 						theMaid.getNavigator().clearPath();
 					}
 				}
 			} else {
-				// 【刺杀阶段】冷却好了，回头冲过去进行“极限距离平A”！
-				// 🌟 核心：使用生存模式极限攻击距离 (3.0格 + 怪物半径)，避免贴脸被秒！
+				// 【刺杀阶段】
 				double survivalMaxReach = 3.0D + (double)entityTarget.width / 2.0D;
 				double atkRangeSq = survivalMaxReach * survivalMaxReach;
 				
 				double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
 				
 				if (currentDistSq <= atkRangeSq) {
-					// 到达 3 格极限边缘，直接隔空拔刀！
 					theMaid.attackEntityAsMob(entityTarget);
 					theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
 					
@@ -310,17 +305,15 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
 					}
 					
-					// 砍完一刀立刻重置冷却，触发“当成苦力怕跑路”逻辑！
 					this.actionDelayTimer = getWeaponCooldown() + 15; 
 				} else {
-					// 还没够到 3 格，加速朝着怪冲！
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
-						theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.2F);
+						// 🌟 修复飙车：接近速度降至 1.15F
+						theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.15F);
 					}
 				}
 			}
 
-			// 🛑 绝对熔断：绝境逻辑结束，拦截下方的常规连招代码！
 			return; 
 		}
 
@@ -359,9 +352,17 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			this.jumpSlashTimer++;
 			theMaid.fallDistance = 0.0F;
 			
+			// 🌟 核心防穿墙：跳劈中如果撞墙，强制取消水平位移！
+			if (theMaid.collidedHorizontally) {
+				theMaid.motionX = 0.0D;
+				theMaid.motionZ = 0.0D;
+			}
+			
 			if (this.jumpSlashTimer <= 10 && theMaid.motionY > 0.05D) {
-				theMaid.motionX = this.jumpDirX;
-				theMaid.motionZ = this.jumpDirZ;
+				if (!theMaid.collidedHorizontally) {
+					theMaid.motionX = this.jumpDirX;
+					theMaid.motionZ = this.jumpDirZ;
+				}
 			} 
 			else {
 				if (this.jumpSlashTimer == 11) {
@@ -370,8 +371,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.setNoGravity(true);
 				theMaid.motionY -= 0.06D; 
 				if (theMaid.motionY < -0.5D) theMaid.motionY = -0.5D; 
-				theMaid.motionX = this.jumpDirX * 1.1D;
-				theMaid.motionZ = this.jumpDirZ * 1.1D;
+				
+				if (!theMaid.collidedHorizontally) {
+					theMaid.motionX = this.jumpDirX * 1.1D;
+					theMaid.motionZ = this.jumpDirZ * 1.1D;
+				}
 			}
 
 			if (theMaid.motionY <= 0.0D) {
@@ -403,7 +407,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		// 🌟 突进(漩涡)状态保护锁
 		if (this.isDashBuff) {
 			this.dashTimer++;
-			if (this.dashTimer > 15 || (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D)) {
+			
+			// 🌟 核心防穿墙：突进中撞墙，立刻解除突进状态并停步！
+			if (this.dashTimer > 15 || (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) || theMaid.collidedHorizontally) {
 				this.isDashBuff = false;
 				theMaid.hurtResistantTime = 0;
 			} else {
@@ -415,8 +421,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.renderYawOffset = theMaid.rotationYaw;
 
 				if (distance > 1.5D && distance < 10.0D) {
-					theMaid.motionX = (dX / distance) * 0.6D;
-					theMaid.motionZ = (dZ / distance) * 0.6D;
+					// 🌟 限速防穿墙：突进速度从 0.6D 降至安全的 0.35D
+					theMaid.motionX = (dX / distance) * 0.35D;
+					theMaid.motionZ = (dZ / distance) * 0.35D;
 					theMaid.velocityChanged = true;
 					return; 
 				} 
@@ -478,7 +485,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						
 						double dX = theMaid.posX - entityTarget.posX; double dZ = theMaid.posZ - entityTarget.posZ; double distance = Math.sqrt(dX * dX + dZ * dZ);
 						if (distance >= 0.0001D) {
-							theMaid.motionX = (dX / distance) * 0.4D; theMaid.motionZ = (dZ / distance) * 0.4D; theMaid.motionY = 0.0D; theMaid.velocityChanged = true;
+							// 🌟 限速防穿墙：后撤步追击从 0.4D 降至安全的 0.35D
+							theMaid.motionX = (dX / distance) * 0.35D; 
+							theMaid.motionZ = (dZ / distance) * 0.35D; 
+							theMaid.motionY = 0.0D; 
+							theMaid.velocityChanged = true;
 						}
 						pendingDash = true; 
 						actionDelayTimer = (int)(getWeaponCooldown() * 0.6F); 
