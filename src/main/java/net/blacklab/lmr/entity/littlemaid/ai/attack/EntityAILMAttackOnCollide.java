@@ -6,14 +6,13 @@ import net.blacklab.lmr.entity.littlemaid.ai.IEntityAILM;
 import net.blacklab.lmr.util.helper.MaidHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
-import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.ai.EntityAIBase;
 import net.minecraft.pathfinding.Path;
 import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (动态仇恨风筝逃跑 + 免死背身盾反)
+ * メイドさんの直接攻撃系処理 (保留常规 + 绝境专属：苦力怕式拉扯 + 生存模式3格极限刺杀)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -41,9 +40,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected int rescueBerserkTimer = 0;      
 	protected int rescueBerserkCooldown = 0;   
 
-	// 🌟 绝境求生：专属雷达核心变量
+	// 🌟 绝境求生核心变量
 	protected boolean isKitingPhase = false;
-	protected EntityLivingBase threatTarget = null; 
 
 	// 🌟 跳劈处决核心变量
 	protected boolean isJumpSlashing = false;
@@ -88,11 +86,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	@Override
 	public boolean shouldExecute() {
 		EntityLivingBase lentity = theMaid.getAttackTarget();
-		
-		if (this.isKitingPhase && this.threatTarget != null && this.threatTarget.isEntityAlive()) {
-			lentity = this.threatTarget;
-		}
-
 		if (!fEnable || theMaid.isMaidWait() || lentity == null) {
 			return false;
 		}
@@ -116,15 +109,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void startExecuting() {
-		EntityLivingBase lentity = this.isKitingPhase ? this.threatTarget : theMaid.getAttackTarget();
-		if(lentity != null && !lentity.isDead){
+		if(entityTarget != null && !entityTarget.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 		}
 		
+		// 健康时才在起始时直接规划冲锋路线，绝境有自己的规划
 		if (!this.isKitingPhase) {
 			theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
 		}
-		
 		rerouteTimer = 0;
 		theMaid.maidAvatar.stopActiveHand();
 	}
@@ -160,11 +152,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		EntityLivingBase lentity = theMaid.getAttackTarget();
-		
-		if (this.isKitingPhase && this.threatTarget != null && this.threatTarget.isEntityAlive()) {
-			lentity = this.threatTarget;
-		}
-
 		if (lentity == null || entityTarget != lentity || entityTarget.isDead || !entityTarget.isEntityAlive()) {
 			resetTask();
 			return false;
@@ -193,14 +180,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		pendingDash = false;
 		isDashBuff = false;
 		dashTimer = 0;
-		
-		if (isKitingPhase) {
-			System.out.println("[LMR-KITE-RADAR] 🏁 任务重置，关闭专属雷达，身体控制权交还！");
-			isKitingPhase = false;
-			threatTarget = null;
-		}
-		
 		isGuard = false;
+
+		if (isKitingPhase) {
+			isKitingPhase = false;
+		}
 
 		if (isJumpSlashing) {
 			isJumpSlashing = false;
@@ -223,20 +207,18 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return;
 		}
 
+		// 常规阶段一直盯怪，绝境逃命阶段不强制盯
+		if (!this.isKitingPhase) {
+			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+		}
+
 		// =======================================================
-		// 0. 绝境专属雷达交接机制 (10% - 20% 阈值)
+		// 0. 绝境状态机与强制动作熔断机制 (10% - 20% 阈值)
 		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 		if (hpPct <= 0.10F) {
 			if (!this.isKitingPhase) {
 				this.isKitingPhase = true;
-				
-				this.threatTarget = entityTarget;
-				theMaid.setAttackTarget(null);
-				theMaid.setRevengeTarget(null);
-				
-				System.out.println("[LMR-KITE-RADAR] 🚨 血量跌破10%，启用绝境雷达锁定: " + this.threatTarget.getName());
-
 				this.isDashBuff = false;
 				this.pendingDash = false;
 				this.pendingBackstep = false;
@@ -244,32 +226,16 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					this.isJumpSlashing = false;
 					theMaid.setNoGravity(false);
 				}
-				
 				this.setMaidOverDrive(0);
 				this.rescueBerserkTimer = 0;
-				
 				theMaid.getNavigator().clearPath();
-				theMaid.motionX = 0.0D;
-				theMaid.motionZ = 0.0D;
 			}
 		} else if (hpPct >= 0.20F) {
-			if (this.isKitingPhase) {
-				this.isKitingPhase = false;
-				
-				if (this.threatTarget != null && this.threatTarget.isEntityAlive()) {
-					theMaid.setAttackTarget(this.threatTarget);
-					System.out.println("[LMR-KITE-RADAR] 💚 血量恢复安全线，交还攻击目标！");
-				}
-				this.threatTarget = null;
-			}
-		}
-
-		if (!this.isKitingPhase) {
-			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+			this.isKitingPhase = false;
 		}
 
 		// =======================================================
-		// 🌟 1. 绝境：动态仇恨风筝逃跑 + 免死背身盾反
+		// 🌟 1. 绝境专属：苦力怕式 一击脱离 (Hit & Run) + 极限距离刺杀
 		// =======================================================
 		if (this.isKitingPhase) {
 			
@@ -277,13 +243,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				this.actionDelayTimer--;
 			}
 
-			// 🛡️ 兜底防爆：绝境提供全免伤抗性
+			// 🛡️ 绝对防线：持续兜底免伤
 			theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 10, 4, false, false));
 
 			// 🛡️ 伪·完美格挡
 			if (theMaid.hurtTime == 10) {
 				theMaid.getNavigator().clearPath(); 
-				
 				theMaid.heal(theMaid.getMaxHealth() * 0.1F); 
 				if (theMaid.getHealth() < 1.0F) {
 					theMaid.setHealth(1.0F); 
@@ -299,67 +264,63 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 				theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + theMaid.getRNG().nextFloat() * 0.4F);
 				
-				this.actionDelayTimer = 10; 
+				// 挨打后强制拉开距离（充当点燃引线）
+				this.actionDelayTimer = getWeaponCooldown() + 10; 
 				return; 
 			}
 
+			if (theMaid.hurtTime <= 0 && theMaid.maidAvatar.isHandActive()) {
+				theMaid.maidAvatar.stopActiveHand();
+			}
+
+			// 🗡️ 刺客拉扯状态机
 			if (this.actionDelayTimer > 0) {
-				return;
-			}
-
-			theMaid.maidAvatar.stopActiveHand();
-			
-			double distSq = theMaid.getDistanceSq(entityTarget);
-			
-			// 🌟 动态安全距离测算 (安全转型 EntityLiving 判定)
-			boolean isChasedByMonster = (entityTarget.getRevengeTarget() == theMaid);
-			if (entityTarget instanceof EntityLiving) {
-				isChasedByMonster = isChasedByMonster || (((EntityLiving)entityTarget).getAttackTarget() == theMaid);
-			}
-			
-			double safeDistSq = isChasedByMonster ? 100.0D : 25.0D;
-
-			if (distSq < safeDistSq) { 
-				if (theMaid.getNavigator().noPath()) {
-					net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
-						theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
-					);
-					if (safePos != null) {
-						theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F); 
-						if (logSpamLimiter % 10 == 0) System.out.println("[LMR-KITE-RADAR] 🏃 距怪 " + String.format("%.2f", Math.sqrt(distSq)) + " 格，被追杀:" + isChasedByMonster + " | 继续风筝！");
-					} else if (distSq < 9.0D && theMaid.onGround) {
-						// 寻路死胡同且贴脸，直接物理弹开
-						double dx = theMaid.posX - entityTarget.posX;
-						double dz = theMaid.posZ - entityTarget.posZ;
-						double len = Math.sqrt(dx * dx + dz * dz);
-						if (len > 0.001D) {
-							theMaid.motionX += (dx / len) * 0.25D;
-							theMaid.motionZ += (dz / len) * 0.25D;
-							theMaid.velocityChanged = true;
-							if (theMaid.collidedHorizontally) {
-								theMaid.getJumpHelper().setJumping();
-							}
+				// 【逃离阶段】武器还在冷却中，把怪物当成苦力怕往回跑！
+				double distSq = theMaid.getDistanceSq(entityTarget);
+				if (distSq < 64.0D) { // 小于 8 格疯狂往外跑
+					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
+						net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
+							theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
+						);
+						if (safePos != null) {
+							theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F); 
 						}
+					}
+				} else {
+					// 距离安全，停泊等待冷却
+					if (!theMaid.getNavigator().noPath()) {
+						theMaid.getNavigator().clearPath();
 					}
 				}
 			} else {
-				// 🌟 完美安全脱战！
-				if (!theMaid.getNavigator().noPath()) {
-					theMaid.getNavigator().clearPath();
-				}
-				if (logSpamLimiter % 20 == 0) {
-					if (isChasedByMonster) {
-						System.out.println("[LMR-KITE-RADAR] 🛑 成功把怪物风筝到 10 格外，警报解除，去找主人！");
-					} else {
-						System.out.println("[LMR-KITE-RADAR] 🛑 怪物仇恨转移，提早解除警报，去找主人！");
+				// 【刺杀阶段】冷却好了，回头冲过去进行“极限距离平A”！
+				// 🌟 核心：使用生存模式极限攻击距离 (3.0格 + 怪物半径)，避免贴脸被秒！
+				double survivalMaxReach = 3.0D + (double)entityTarget.width / 2.0D;
+				double atkRangeSq = survivalMaxReach * survivalMaxReach;
+				
+				double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
+				
+				if (currentDistSq <= atkRangeSq) {
+					// 到达 3 格极限边缘，直接隔空拔刀！
+					theMaid.attackEntityAsMob(entityTarget);
+					theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+					
+					if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
+						worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
+						if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+					}
+					
+					// 砍完一刀立刻重置冷却，触发“当成苦力怕跑路”逻辑！
+					this.actionDelayTimer = getWeaponCooldown() + 15; 
+				} else {
+					// 还没够到 3 格，加速朝着怪冲！
+					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
+						theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.2F);
 					}
 				}
-				
-				this.threatTarget = null;
-				theMaid.setAttackTarget(null);
-				theMaid.setRevengeTarget(null);
 			}
 
+			// 🛑 绝对熔断：绝境逻辑结束，拦截下方的常规连招代码！
 			return; 
 		}
 
