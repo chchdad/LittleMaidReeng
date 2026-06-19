@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (绝境纯净控距 + 背身盾反 + 剔除绝境攻击干扰)
+ * メイドさんの直接攻撃系処理 (绝境纯净控距 + 背身盾反 + 剔除绝境攻击干扰 + 修复举盾沾滞)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -231,11 +231,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		// =======================================================
 		if (this.isKitingPhase) {
 			
-			// 🛡️ 绝对防线：持续赋予抗性提升5(100%免伤)，防止高伤瞬间秒杀
+			// 🛡️ 绝对防线：持续赋予抗性提升5(100%免伤)，兜底爆炸和高伤秒杀
 			theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 10, 4, false, false));
 
 			// 🛡️ 伪·完美格挡：当受到攻击的瞬间 (hurtTime == 10 为受击第一帧)
 			if (theMaid.hurtTime == 10) {
+				// 🌟 核心修复：强制清除脚下的寻路路径，立刻刹车，杜绝带着老路径往怪怀里钻的“沾滞”现象！
+				theMaid.getNavigator().clearPath();
+
 				// 没收真实伤害/魔法伤害，并强制兜底锁血 1 点
 				theMaid.heal(theMaid.getMaxHealth() * 0.1F); 
 				if (theMaid.getHealth() < 1.0F) {
@@ -254,7 +257,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 				theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + theMaid.getRNG().nextFloat() * 0.4F);
 				
-				return; // 盾反帧暂停其他计算
+				// 给一个 10 Tick 的硬直，在此期间脚被锁死不会乱走
+				this.actionDelayTimer = 10; 
+				return; 
 			}
 
 			// 盾反动作结束，放下盾牌
@@ -262,43 +267,41 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.maidAvatar.stopActiveHand();
 				
 				// 🌟 纯粹拉扯控距 (绝不贪刀)
-				double dist = Math.sqrt(theMaid.getDistanceSq(entityTarget));
+				if (this.actionDelayTimer <= 0) {
+					double dist = Math.sqrt(theMaid.getDistanceSq(entityTarget));
 
-				if (dist < 5.0D) {
-					// 距离太近，立刻转身逃亡
-					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
-						net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
-							theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
-						);
-						if (safePos != null) {
-							theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.15F); 
-						} else if (dist < 3.0D && theMaid.onGround) {
-							// 寻路失败且被逼墙角，启动物理强推除胶
-							double dx = theMaid.posX - entityTarget.posX;
-							double dz = theMaid.posZ - entityTarget.posZ;
-							double len = Math.sqrt(dx * dx + dz * dz);
-							if (len > 0.001D) {
-								theMaid.motionX += (dx / len) * 0.15D;
-								theMaid.motionZ += (dz / len) * 0.15D;
-								theMaid.velocityChanged = true;
+					if (dist < 5.0D) {
+						// 🌟 核心修复：只有在没有逃跑路径时才计算新路径，不瞎重算导致“腿软停顿”
+						if (theMaid.getNavigator().noPath()) {
+							net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
+								theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
+							);
+							if (safePos != null) {
+								theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F); 
+							} else if (dist < 3.0D && theMaid.onGround) {
+								// 寻路失败(比如死胡同)且被贴脸，物理除胶推力加码到 0.3D，一脚踢开！
+								double dx = theMaid.posX - entityTarget.posX;
+								double dz = theMaid.posZ - entityTarget.posZ;
+								double len = Math.sqrt(dx * dx + dz * dz);
+								if (len > 0.001D) {
+									theMaid.motionX += (dx / len) * 0.3D;
+									theMaid.motionZ += (dz / len) * 0.3D;
+									theMaid.velocityChanged = true;
+								}
 							}
 						}
+					} else if (dist > 6.5D) {
+						// 距离太远，清空逃跑路线，重新往目标靠拢保持牵制
+						if (theMaid.getNavigator().noPath()) {
+							theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.0F);
+						}
+					} else {
+						// 处于 5 ~ 6.5 的完美安全区，清空一切寻路，原地停步！
+						theMaid.getNavigator().clearPath();
 					}
-				} else if (dist > 6.5D) {
-					// 距离被拉开，向目标靠近保持牵制
-					theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.0F);
-				} else {
-					// 距离处于 5 ~ 6.5 的完美安全区，停住脚步保存体力
-					theMaid.getNavigator().clearPath();
 				}
 			}
 			
-			// 纯净控距日志
-			if (logSpamLimiter % 20 == 0) {
-				System.out.println("[LMR-KITE-PURE] Dist: " + String.format("%.2f", Math.sqrt(theMaid.getDistanceSq(entityTarget))) + 
-								   " | HurtTime: " + theMaid.hurtTime);
-			}
-
 			// 🛑 绝对熔断：绝境状态到此为止！下半部分的代码绝对不会执行！
 			return; 
 		}
