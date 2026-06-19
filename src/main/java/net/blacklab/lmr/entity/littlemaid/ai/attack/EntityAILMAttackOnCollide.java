@@ -12,14 +12,14 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (引入专属绝境雷达隔离 + 苦力怕避障逃跑 + 免死盾反)
+ * メイドさんの直接攻撃系処理 (修复木头人死锁 + DEBUG日志追踪 + 绝境完美避障)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
 	protected boolean fEnable;
 	protected World worldObj;
 	protected EntityLittleMaid theMaid;
-	protected EntityLivingBase entityTarget; // 统一使用 EntityLivingBase
+	protected EntityLivingBase entityTarget; 
 	protected float moveSpeed;
 	protected boolean isReroute;
 	protected Path pathToTarget;
@@ -40,9 +40,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected int rescueBerserkTimer = 0;      
 	protected int rescueBerserkCooldown = 0;   
 
-	// 🌟 绝境专属雷达与状态变量 (核心隔离区)
+	// 🌟 绝境求生核心变量
 	protected boolean isKitingPhase = false;
-	protected EntityLivingBase threatTarget = null; // 专属恐惧雷达目标！
 
 	// 🌟 跳劈处决核心变量
 	protected boolean isJumpSlashing = false;
@@ -87,11 +86,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	@Override
 	public boolean shouldExecute() {
 		EntityLivingBase lentity = theMaid.getAttackTarget();
-		
-		// 🌟 专属雷达接管：如果在绝境中，读取专属恐惧雷达，无视全局目标！
-		if (this.isKitingPhase && this.threatTarget != null && this.threatTarget.isEntityAlive()) {
-			lentity = this.threatTarget;
-		}
 
 		if (!fEnable || theMaid.isMaidWait() || lentity == null) {
 			return false;
@@ -116,13 +110,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void startExecuting() {
-		// 🌟 专属雷达接管发声判定
-		EntityLivingBase lentity = this.isKitingPhase ? this.threatTarget : theMaid.getAttackTarget();
-		if(lentity != null && !lentity.isDead){
+		if(entityTarget != null && !entityTarget.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 		}
 		
-		if (!this.isKitingPhase) {
+		// 🌟 核心保护：血量健康时才允许朝着敌人冲锋，残血绝对不生成冲锋路线！
+		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
+		if (hpPct > 0.10F) {
 			theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
 		}
 		
@@ -161,11 +155,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		EntityLivingBase lentity = theMaid.getAttackTarget();
-		
-		// 🌟 专属雷达接管持续性判定
-		if (this.isKitingPhase && this.threatTarget != null && this.threatTarget.isEntityAlive()) {
-			lentity = this.threatTarget;
-		}
 
 		if (lentity == null || entityTarget != lentity || entityTarget.isDead || !entityTarget.isEntityAlive()) {
 			resetTask();
@@ -174,7 +163,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (!MaidHelper.isTargetReachable(this.theMaid, lentity, 0.0D)) {
 			return false;
 		}
-		if (!isReroute) {
+		
+		// 🌟 修复木头人死锁的核心代码：
+		// 如果处于绝境拉扯状态 (isKitingPhase)，允许暂时没有寻路路径！绝对不能返回 false 中止任务！
+		if (!isReroute && !this.isKitingPhase) {
 			if (theMaid.getNavigator().noPath()) {
 				return false;
 			}
@@ -195,9 +187,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		isDashBuff = false;
 		dashTimer = 0;
 		
-		// 清理绝境专属雷达
-		isKitingPhase = false;
-		threatTarget = null;
+		// 清理绝境状态
+		if (isKitingPhase) {
+			isKitingPhase = false;
+			System.out.println("[LMR-KITE-DEBUG] 🏁 脱离战斗或任务重置，绝境状态解除。");
+		}
 		
 		isGuard = false;
 
@@ -223,17 +217,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 0. 绝境状态机与专属雷达物理隔离 (10% - 20% 阈值)
+		// 0. 绝境状态机 (10% - 20% 阈值)
 		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 		if (hpPct <= 0.10F) {
 			if (!this.isKitingPhase) {
 				this.isKitingPhase = true;
-				
-				// 🌟 核心隔离：开启专属雷达，并强制清空全局雷达！
-				this.threatTarget = entityTarget;
-				theMaid.setAttackTarget(null);
-				theMaid.setRevengeTarget(null);
 				
 				this.isDashBuff = false;
 				this.pendingDash = false;
@@ -249,16 +238,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.getNavigator().clearPath();
 				theMaid.motionX = 0.0D;
 				theMaid.motionZ = 0.0D;
+				
+				System.out.println("[LMR-KITE-DEBUG] 🚨 濒死警告！血量跌破 10%，切入战术拉扯模式！");
 			}
 		} else if (hpPct >= 0.20F) {
 			if (this.isKitingPhase) {
 				this.isKitingPhase = false;
-				
-				// 🌟 隔离解除：将专属雷达里的目标还给全局雷达，恢复正常战斗！
-				if (this.threatTarget != null && this.threatTarget.isEntityAlive()) {
-					theMaid.setAttackTarget(this.threatTarget);
-				}
-				this.threatTarget = null;
+				System.out.println("[LMR-KITE-DEBUG] 💚 血量恢复安全线！重返战场！");
 			}
 		}
 
@@ -267,7 +253,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 🌟 1. 绝境：专属雷达指引控距逃跑 + 免死背身盾反
+		// 🌟 1. 绝境：监控级安全拉扯 + 免死背身盾反
 		// =======================================================
 		if (this.isKitingPhase) {
 			
@@ -298,6 +284,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + theMaid.getRNG().nextFloat() * 0.4F);
 				
 				this.actionDelayTimer = 10; 
+				System.out.println("[LMR-KITE-DEBUG] 🛡️ 触发完美格挡！没收致死伤害！");
 				return; 
 			}
 
@@ -316,6 +303,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					);
 					if (safePos != null) {
 						theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F); 
+						System.out.println("[LMR-KITE-DEBUG] 🏃 距离过近 (" + String.format("%.2f", Math.sqrt(distSq)) + ")，计算新安全点并全力脱战！");
 					} else if (distSq < 9.0D && theMaid.onGround) {
 						double dx = theMaid.posX - entityTarget.posX;
 						double dz = theMaid.posZ - entityTarget.posZ;
@@ -327,14 +315,21 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							if (theMaid.collidedHorizontally) {
 								theMaid.getJumpHelper().setJumping();
 							}
+							System.out.println("[LMR-KITE-DEBUG] 💥 寻路死胡同且被贴脸！启动底牌：纯物理弹开！");
 						}
 					}
 				}
 			} else {
-				theMaid.getNavigator().clearPath();
+				// 停泊休息
+				if (!theMaid.getNavigator().noPath()) {
+					theMaid.getNavigator().clearPath();
+				}
+				if (logSpamLimiter % 20 == 0) {
+					System.out.println("[LMR-KITE-DEBUG] 🛑 距离安全 (" + String.format("%.2f", Math.sqrt(distSq)) + ")，原地待命监视。");
+				}
 			}
 
-			// 🛑 绝对熔断：绝境状态到此为止！
+			// 🛑 绝对熔断
 			return; 
 		}
 
