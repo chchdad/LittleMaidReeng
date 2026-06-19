@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (完美复原苦力怕躲避逻辑 + 免死盾反 + 常规动作)
+ * メイドさんの直接攻撃系処理 (修复自杀式幽灵突刺 + 完美苦力怕避障拉扯 + 免死盾反)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -48,6 +48,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected int jumpSlashTimer = 0;
 	protected double jumpDirX = 0;
 	protected double jumpDirZ = 0;
+
+	private int logSpamLimiter = 0;
 
 	public EntityAILMAttackOnCollide(EntityLittleMaid par1EntityLittleMaid, float par2, boolean par3) {
 		theMaid = par1EntityLittleMaid;
@@ -110,7 +112,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if(!lentity.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 		}
-		theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
+		
+		// 🌟 核心修复：绝境状态下，严禁底层AI将目标点定在敌人身上！斩断自杀式突进的源头！
+		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
+		if (hpPct > 0.10F) {
+			theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
+		}
+		
 		rerouteTimer = 0;
 		theMaid.maidAvatar.stopActiveHand();
 	}
@@ -201,17 +209,25 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 		if (hpPct <= 0.10F) {
-			this.isKitingPhase = true;
-			this.isDashBuff = false;
-			this.pendingDash = false;
-			this.pendingBackstep = false;
-			if (this.isJumpSlashing) {
-				this.isJumpSlashing = false;
-				theMaid.setNoGravity(false);
+			// 🌟 入场级清洗：一旦跌入 10%，强制清理上一阶段残留的任何指令！
+			if (!this.isKitingPhase) {
+				this.isKitingPhase = true;
+				this.isDashBuff = false;
+				this.pendingDash = false;
+				this.pendingBackstep = false;
+				if (this.isJumpSlashing) {
+					this.isJumpSlashing = false;
+					theMaid.setNoGravity(false);
+				}
+				theMaid.setBloodsuck(false);
+				this.setMaidOverDrive(0);
+				this.rescueBerserkTimer = 0;
+				
+				// 强制刹车，清空物理残留速度和错误寻路！
+				theMaid.getNavigator().clearPath();
+				theMaid.motionX = 0.0D;
+				theMaid.motionZ = 0.0D;
 			}
-			theMaid.setBloodsuck(false);
-			this.setMaidOverDrive(0);
-			this.rescueBerserkTimer = 0;
 		} else if (hpPct >= 0.20F) {
 			this.isKitingPhase = false;
 		}
@@ -267,19 +283,31 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			// 硬直结束，立刻放下盾牌开跑
 			theMaid.maidAvatar.stopActiveHand();
 			
-			// 🌟 核心：原版逃跑逻辑 (绝不中途重新算路！)
+			// 🌟 核心：原版逃跑逻辑
 			double distSq = theMaid.getDistanceSq(entityTarget);
 
 			if (distSq < 49.0D) { // 距离小于 7 格，处于危险区
-				// 🌟 只有当“当前没有任何逃跑路线”时，才寻找新路线！
+				// 只有当没有逃跑路线时，才寻找新路线！
 				if (theMaid.getNavigator().noPath()) {
-					// 这是村民、苦力怕、豹猫都在用的顶级安全区搜索器
 					net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
 						theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
 					);
 					if (safePos != null) {
 						// 找到路了，直接 1.5倍 移速全力冲刺！
 						theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F); 
+					} else if (distSq < 9.0D && theMaid.onGround) {
+						// 🌟 绝境物理推力：如果被逼入死胡同寻路失败，暴力推开！
+						double dx = theMaid.posX - entityTarget.posX;
+						double dz = theMaid.posZ - entityTarget.posZ;
+						double len = Math.sqrt(dx * dx + dz * dz);
+						if (len > 0.001D) {
+							theMaid.motionX += (dx / len) * 0.25D;
+							theMaid.motionZ += (dz / len) * 0.25D;
+							theMaid.velocityChanged = true;
+							if (theMaid.collidedHorizontally) {
+								theMaid.getJumpHelper().setJumping();
+							}
+						}
 					}
 				}
 			} else {
@@ -422,6 +450,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 					}
 					theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 5, 1, false, false));
+					if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 2 == 0) {
+						((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.CRIT, theMaid.posX + (theMaid.getRNG().nextFloat()-0.5), theMaid.posY + 0.5D, theMaid.posZ + (theMaid.getRNG().nextFloat()-0.5), 2, 0.0D, 0.0D, 0.0D, 0.1D);
+					}
 				}
 				if (pendingDash) {
 					this.isGuard = true;
