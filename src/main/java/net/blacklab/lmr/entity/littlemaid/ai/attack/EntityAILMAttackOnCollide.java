@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (原版小白走位复刻 + 绝境绝对熔断阻断 + 完整保留常规连招)
+ * メイドさんの直接攻撃系処理 (完全剔除寻路 -> 纯物理级防粘滞拉扯走位 + 绝境绝对熔断)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -202,6 +202,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return;
 		}
 
+		// 视线永远死死锁定怪物
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
@@ -226,10 +227,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 🌟 1. 绝境：原版小白拉扯走位 (绝对熔断区)
+		// 🌟 1. 绝境：纯物理强制位移拉扯 (绝对无视贴脸粘滞)
 		// =======================================================
 		if (this.isKitingPhase) {
-			// 废弃原版寻路系统，防止贴脸导致寻路失效死循环
+			// 1. 彻底禁用原版寻路系统！防止贴脸寻路死锁
 			theMaid.getNavigator().clearPath();
 			
 			if (--this.dodgeCooldown <= 0) {
@@ -240,7 +241,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			double distSq = theMaid.getDistanceSq(entityTarget);
 			double forward = 0.0D;
 
-			// 小白核心逻辑：距离小于4(距离平方16)后退，距离大于7(距离平方49)前进
+			// 距离小于4格(平方16)后退，大于7格(平方49)压近
 			if (distSq < 16.0D) {
 				forward = -1.0D;
 			} else if (distSq > 49.0D) {
@@ -249,32 +250,39 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 			double strafe = this.strafingClockwise ? 1.0D : -1.0D;
 
-			// 将走位意图转换为实际的世界坐标系方向向量
+			// 🌟 核心修复：手动计算三角函数，直接赋予物理速度！
+			// 完全绕开愚蠢的 MoveHelper 必须转身才能走路的逻辑！
 			double yaw = theMaid.rotationYaw * (Math.PI / 180.0D);
 			double strafeYaw = yaw + (Math.PI / 2.0D);
 
 			double dirX = -Math.sin(yaw) * forward - Math.sin(strafeYaw) * strafe;
 			double dirZ = Math.cos(yaw) * forward + Math.cos(strafeYaw) * strafe;
 
-			// 归一化向量，防止斜向走位超速
 			double len = Math.sqrt(dirX * dirX + dirZ * dirZ);
 			if (len > 0.0001D) {
 				dirX /= len;
 				dirZ /= len;
 			}
 
-			// 🌟 使用底层的 MoveHelper 强行移动 (绕开 PathFinder，彻底解决贴脸卡死)
-			theMaid.getMoveHelper().setMoveTo(theMaid.posX + dirX * 2.0D, theMaid.posY, theMaid.posZ + dirZ * 2.0D, moveSpeed * 1.0D);
-
-			if (logSpamLimiter % 10 == 0) {
-				System.out.println("[LMR-KITE-SKEL] HP: " + String.format("%.2f", hpPct) + 
-								   " | DistSq: " + String.format("%.2f", distSq) + 
-								   " | Fwd: " + forward + 
-								   " | Strafe: " + (this.strafingClockwise ? "R" : "L"));
+			// 直接强行推开女仆 (速度0.22D，约等于玩家疾跑和潜行之间的完美控距速度)
+			if (theMaid.onGround) {
+				theMaid.motionX = dirX * 0.22D;
+				theMaid.motionZ = dirZ * 0.22D;
+				theMaid.velocityChanged = true;
 			}
 
-			// 🛑 绝对熔断：在绝境状态下，走到这里直接 return！
-			// 下面所有的跳劈、突进、挥剑统统跳过，她脑子里只有纯粹的控距！
+			// 🌟 智能越野：如果背向拉扯时撞到了墙壁，像玩家一样自动按空格键起跳越过！
+			if (theMaid.isCollidedHorizontally && theMaid.onGround) {
+				theMaid.getJumpHelper().setJumping();
+			}
+
+			if (logSpamLimiter % 10 == 0) {
+				System.out.println("[LMR-KITE-PHYSICS] DistSq: " + String.format("%.2f", distSq) + 
+								   " | Fwd: " + forward + 
+								   " | Collided: " + theMaid.isCollidedHorizontally);
+			}
+
+			// 🛑 绝对熔断：绝境状态下代码到此为止，下面一切攻击连招绝对不触发！
 			return; 
 		}
 
