@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (解除视角锁死 -> 完美复刻村民逃跑AI + 纯净绝境控距)
+ * メイドさんの直接攻撃系処理 (原版爆炸躲避级 Jousting 拉扯 + 常规动作保留)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -43,7 +43,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	// 🌟 绝境求生核心变量
 	protected boolean isKitingPhase = false;
 	protected int dodgeCooldown = 0;
-	protected boolean strafingClockwise = true; 
+	protected boolean isJousting = false; // 🌟 绝境冲锋突刺标记
 
 	// 🌟 跳劈处决核心变量
 	protected boolean isJumpSlashing = false;
@@ -178,6 +178,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		isDashBuff = false;
 		dashTimer = 0;
 		isKitingPhase = false;
+		isJousting = false;
 		dodgeCooldown = 0;
 		isGuard = false;
 
@@ -202,63 +203,109 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return;
 		}
 
+		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+
 		// =======================================================
 		// 0. 绝境状态机与强制动作熔断机制 (10% - 20% 阈值)
 		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 		if (hpPct <= 0.10F) {
 			this.isKitingPhase = true;
+			// 🌟 状态熔断：强行清除残留的跳劈和突进标志，绝不贪刀！
+			this.isJumpSlashing = false;
 			this.isDashBuff = false;
 			this.pendingDash = false;
 			this.pendingBackstep = false;
-			if (this.isJumpSlashing) {
-				this.isJumpSlashing = false;
-				theMaid.setNoGravity(false);
-			}
+			theMaid.setNoGravity(false); // 安全重置重力
+			
 			theMaid.setBloodsuck(false);
 			this.setMaidOverDrive(0);
 			this.rescueBerserkTimer = 0;
 		} else if (hpPct >= 0.20F) {
 			this.isKitingPhase = false;
-		}
-
-		// 🌟 核心修改：如果是正常阶段，死死盯着怪物；如果是绝境逃跑，解除视角锁定让她专心看路！
-		if (!this.isKitingPhase) {
-			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+			this.isJousting = false;
 		}
 
 		// =======================================================
-		// 🌟 1. 绝境：原版村民级最高效逃跑AI (不再看怪物，转头就跑！)
+		// 🌟 1. 绝境：Jousting (爆炸躲避级 5~6格拉扯 + 4格拔刀)
 		// =======================================================
 		if (this.isKitingPhase) {
-			
-			// 使用原版避开怪物的安全点生成器 (跟村民躲僵尸一样的逻辑)
-			if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
-				net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
-					theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
-				);
-				
-				if (safePos != null) {
-					// 爆发 1.5 倍极限移速逃跑
-					theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F);
-				} else if (theMaid.getDistanceSq(entityTarget) < 4.0D) {
-					// 🌟 绝境底牌：如果在死胡同里被贴脸，不走路了，直接纯物理推开！
-					double dx = theMaid.posX - entityTarget.posX;
-					double dz = theMaid.posZ - entityTarget.posZ;
-					double len = Math.sqrt(dx * dx + dz * dz);
-					if (len > 0.001D && theMaid.onGround) {
-						theMaid.motionX += (dx / len) * 0.15D;
-						theMaid.motionZ += (dz / len) * 0.15D;
-						theMaid.velocityChanged = true;
-					}
-				}
-			}
-			
-			if (logSpamLimiter % 20 == 0) {
-				System.out.println("[LMR-FLEE] DistanceSq: " + theMaid.getDistanceSq(entityTarget) + " | HasPath: " + !theMaid.getNavigator().noPath());
+			double dist = Math.sqrt(theMaid.getDistanceSq(entityTarget));
+
+			// 当所有攻击冷却清零时，随时准备冲锋
+			if (this.actionDelayTimer <= 0) {
+				this.isJousting = true;
 			}
 
-			// 🛑 绝对熔断：绝境状态下直接返回，下面一切跳劈、突进绝对不触发！
+			if (this.isJousting) {
+				// 🌟 冲锋阶段：向目标逼近，直到距离缩小至 4 格
+				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.15F);
+
+				if (dist <= 4.0D) {
+					// 到达 4 格极限攻击距离，瞬间横扫反制！
+					theMaid.attackEntityAsMob(entityTarget);
+					
+					if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
+						worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
+						if (worldObj instanceof net.minecraft.world.WorldServer) {
+							((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+						}
+						
+						// AOE 剑刃风暴横扫判定
+						java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(EntityLivingBase.class, theMaid.getEntityBoundingBox().grow(2.0D, 1.5D, 2.0D));
+						float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+						float sweepRatio = net.minecraft.enchantment.EnchantmentHelper.getSweepingDamageRatio(theMaid);
+						float sweepDamage = 1.0F + (sweepRatio * baseAttackDamage);
+						Entity owner = theMaid.getMaidMasterEntity();
+						double yawRad = theMaid.rotationYaw * Math.PI / 180.0D;
+						double lookX = -Math.sin(yawRad); double lookZ = Math.cos(yawRad);
+
+						for (EntityLivingBase aoeTarget : list) {
+							if (aoeTarget == theMaid || aoeTarget == entityTarget || aoeTarget == owner || theMaid.isOnSameTeam(aoeTarget)) continue;
+							if (theMaid.getDistanceSq(aoeTarget) >= 16.0D) continue;
+							double dx = aoeTarget.posX - theMaid.posX; double dz = aoeTarget.posZ - theMaid.posZ; double distanceXY = Math.sqrt(dx * dx + dz * dz);
+							if (distanceXY > 0.0001D) {
+								double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
+								if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
+									aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+									aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
+								}
+							}
+						}
+					}
+					theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+					
+					// 🌟 打完立刻转回逃跑模式！清空寻路，给足冷却时间！
+					this.isJousting = false;
+					this.actionDelayTimer = getWeaponCooldown() + 20; // 武器攻速 + 1秒(20Tick)的额外拉扯时间
+					theMaid.getNavigator().clearPath();
+				}
+			} else {
+				// 🌟 逃跑与控距阶段：将距离死死卡在 5 ~ 6.5 格之间
+				if (dist < 5.0D) {
+					// 距离小于 5 格，触发原版防爆躲避，寻找反方向安全点
+					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
+						net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
+							theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
+						);
+						if (safePos != null) {
+							theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.15F); // 使用正常奔跑速度脱离
+						}
+					}
+				} else if (dist > 6.5D) {
+					// 距离大于 6.5 格，稍微靠近以保持牵制力
+					theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.0F);
+				}
+			}
+
+			// 监控拉扯日志
+			if (logSpamLimiter % 10 == 0) {
+				System.out.println("[LMR-KITE-JOUST] Dist: " + String.format("%.2f", dist) + 
+								   " | Jousting: " + this.isJousting + 
+								   " | CD: " + this.actionDelayTimer);
+			}
+
+			// 🛑 绝对熔断：在绝境状态下代码到此为止！下半部分的代码绝对不会被执行！
 			return; 
 		}
 
@@ -447,7 +494,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
 
 				double dist = Math.sqrt(distToTarget);
-				// 常规战术跳劈：距离合适且血量健康时触发
 				if (this.actionDelayTimer <= 0 && dist >= 4.0D && dist <= 8.0D && !this.isDashBuff) {
 					if (theMaid.getRNG().nextInt(100) < 25) {
 						this.isJumpSlashing = true;
