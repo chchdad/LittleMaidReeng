@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (完全剔除寻路 -> 纯物理级防粘滞拉扯走位 + 绝境绝对熔断)
+ * メイドさんの直接攻撃系処理 (解除视角锁死 -> 完美复刻村民逃跑AI + 纯净绝境控距)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -202,16 +202,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return;
 		}
 
-		// 视线永远死死锁定怪物
-		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
-
 		// =======================================================
-		// 0. 绝境状态机 (10% - 20% 阈值)
+		// 0. 绝境状态机与强制动作熔断机制 (10% - 20% 阈值)
 		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 		if (hpPct <= 0.10F) {
 			this.isKitingPhase = true;
-			// 🌟 进入绝境瞬间强制清空一切攻击姿态
 			this.isDashBuff = false;
 			this.pendingDash = false;
 			this.pendingBackstep = false;
@@ -226,62 +222,43 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			this.isKitingPhase = false;
 		}
 
+		// 🌟 核心修改：如果是正常阶段，死死盯着怪物；如果是绝境逃跑，解除视角锁定让她专心看路！
+		if (!this.isKitingPhase) {
+			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+		}
+
 		// =======================================================
-		// 🌟 1. 绝境：纯物理强制位移拉扯 (绝对无视贴脸粘滞)
+		// 🌟 1. 绝境：原版村民级最高效逃跑AI (不再看怪物，转头就跑！)
 		// =======================================================
 		if (this.isKitingPhase) {
-			// 1. 彻底禁用原版寻路系统！防止贴脸寻路死锁
-			theMaid.getNavigator().clearPath();
 			
-			if (--this.dodgeCooldown <= 0) {
-				this.strafingClockwise = theMaid.getRNG().nextBoolean();
-				this.dodgeCooldown = 20 + theMaid.getRNG().nextInt(20);
+			// 使用原版避开怪物的安全点生成器 (跟村民躲僵尸一样的逻辑)
+			if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
+				net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
+					theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
+				);
+				
+				if (safePos != null) {
+					// 爆发 1.5 倍极限移速逃跑
+					theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F);
+				} else if (theMaid.getDistanceSq(entityTarget) < 4.0D) {
+					// 🌟 绝境底牌：如果在死胡同里被贴脸，不走路了，直接纯物理推开！
+					double dx = theMaid.posX - entityTarget.posX;
+					double dz = theMaid.posZ - entityTarget.posZ;
+					double len = Math.sqrt(dx * dx + dz * dz);
+					if (len > 0.001D && theMaid.onGround) {
+						theMaid.motionX += (dx / len) * 0.15D;
+						theMaid.motionZ += (dz / len) * 0.15D;
+						theMaid.velocityChanged = true;
+					}
+				}
+			}
+			
+			if (logSpamLimiter % 20 == 0) {
+				System.out.println("[LMR-FLEE] DistanceSq: " + theMaid.getDistanceSq(entityTarget) + " | HasPath: " + !theMaid.getNavigator().noPath());
 			}
 
-			double distSq = theMaid.getDistanceSq(entityTarget);
-			double forward = 0.0D;
-
-			// 距离小于4格(平方16)后退，大于7格(平方49)压近
-			if (distSq < 16.0D) {
-				forward = -1.0D;
-			} else if (distSq > 49.0D) {
-				forward = 1.0D;
-			}
-
-			double strafe = this.strafingClockwise ? 1.0D : -1.0D;
-
-			// 🌟 核心修复：手动计算三角函数，直接赋予物理速度！
-			double yaw = theMaid.rotationYaw * (Math.PI / 180.0D);
-			double strafeYaw = yaw + (Math.PI / 2.0D);
-
-			double dirX = -Math.sin(yaw) * forward - Math.sin(strafeYaw) * strafe;
-			double dirZ = Math.cos(yaw) * forward + Math.cos(strafeYaw) * strafe;
-
-			double len = Math.sqrt(dirX * dirX + dirZ * dirZ);
-			if (len > 0.0001D) {
-				dirX /= len;
-				dirZ /= len;
-			}
-
-			// 直接强行推开女仆 (速度0.22D，约等于玩家疾跑和潜行之间的完美控距速度)
-			if (theMaid.onGround) {
-				theMaid.motionX = dirX * 0.22D;
-				theMaid.motionZ = dirZ * 0.22D;
-				theMaid.velocityChanged = true;
-			}
-
-			// 🌟 智能越野：修正为 collidedHorizontally
-			if (theMaid.collidedHorizontally && theMaid.onGround) {
-				theMaid.getJumpHelper().setJumping();
-			}
-
-			if (logSpamLimiter % 10 == 0) {
-				System.out.println("[LMR-KITE-PHYSICS] DistSq: " + String.format("%.2f", distSq) + 
-								   " | Fwd: " + forward + 
-								   " | Collided: " + theMaid.collidedHorizontally);
-			}
-
-			// 🛑 绝对熔断：绝境状态下代码到此为止，下面一切攻击连招绝对不触发！
+			// 🛑 绝对熔断：绝境状态下直接返回，下面一切跳劈、突进绝对不触发！
 			return; 
 		}
 
@@ -457,7 +434,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		// 常规冲锋寻路
+		// 常规冲锋寻路与跳劈触发
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
 				rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
@@ -470,6 +447,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
 
 				double dist = Math.sqrt(distToTarget);
+				// 常规战术跳劈：距离合适且血量健康时触发
 				if (this.actionDelayTimer <= 0 && dist >= 4.0D && dist <= 8.0D && !this.isDashBuff) {
 					if (theMaid.getRNG().nextInt(100) < 25) {
 						this.isJumpSlashing = true;
