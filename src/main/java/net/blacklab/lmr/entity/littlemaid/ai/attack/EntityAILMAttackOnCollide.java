@@ -251,7 +251,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			double strafe = this.strafingClockwise ? 1.0D : -1.0D;
 
 			// 🌟 核心修复：手动计算三角函数，直接赋予物理速度！
-			// 完全绕开愚蠢的 MoveHelper 必须转身才能走路的逻辑！
 			double yaw = theMaid.rotationYaw * (Math.PI / 180.0D);
 			double strafeYaw = yaw + (Math.PI / 2.0D);
 
@@ -271,15 +270,15 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.velocityChanged = true;
 			}
 
-			// 🌟 智能越野：如果背向拉扯时撞到了墙壁，像玩家一样自动按空格键起跳越过！
-			if (theMaid.isCollidedHorizontally && theMaid.onGround) {
+			// 🌟 智能越野：修正为 collidedHorizontally
+			if (theMaid.collidedHorizontally && theMaid.onGround) {
 				theMaid.getJumpHelper().setJumping();
 			}
 
 			if (logSpamLimiter % 10 == 0) {
 				System.out.println("[LMR-KITE-PHYSICS] DistSq: " + String.format("%.2f", distSq) + 
 								   " | Fwd: " + forward + 
-								   " | Collided: " + theMaid.isCollidedHorizontally);
+								   " | Collided: " + theMaid.collidedHorizontally);
 			}
 
 			// 🛑 绝对熔断：绝境状态下代码到此为止，下面一切攻击连招绝对不触发！
