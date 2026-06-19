@@ -6,13 +6,14 @@ import net.blacklab.lmr.entity.littlemaid.ai.IEntityAILM;
 import net.blacklab.lmr.util.helper.MaidHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.ai.EntityAIBase;
 import net.minecraft.pathfinding.Path;
 import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (修复飙车穿墙 + 撞墙急停 + 苦力怕式拉扯 + 极限距离刺杀)
+ * メイドさんの直接攻撃系処理 (绝境专属雷达 + 110度刺杀视野 + 长效苦力怕拉扯)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -30,7 +31,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected boolean pendingBackstep = false; 
 	protected boolean pendingDash = false; 
 	
-	// 🌟 突进(漩涡)状态保护变量
+	// 🌟 突进状态保护变量
 	protected boolean isDashBuff = false; 
 	protected int dashTimer = 0; 
 
@@ -40,8 +41,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected int rescueBerserkTimer = 0;      
 	protected int rescueBerserkCooldown = 0;   
 
-	// 🌟 绝境求生核心变量
+	// 🌟 绝境求生：专属雷达核心隔离区
 	protected boolean isKitingPhase = false;
+	protected EntityLivingBase threatTarget = null; // 绝境黑名单
 
 	// 🌟 跳劈处决核心变量
 	protected boolean isJumpSlashing = false;
@@ -86,6 +88,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	@Override
 	public boolean shouldExecute() {
 		EntityLivingBase lentity = theMaid.getAttackTarget();
+		
+		// 🌟 绝境雷达拦截
+		if (this.isKitingPhase && this.threatTarget != null && this.threatTarget.isEntityAlive()) {
+			lentity = this.threatTarget;
+		}
+
 		if (!fEnable || theMaid.isMaidWait() || lentity == null) {
 			return false;
 		}
@@ -109,7 +117,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void startExecuting() {
-		if(entityTarget != null && !entityTarget.isDead){
+		EntityLivingBase lentity = this.isKitingPhase ? this.threatTarget : theMaid.getAttackTarget();
+		if(lentity != null && !lentity.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 		}
 		
@@ -122,7 +131,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public boolean shouldContinueExecuting() {
-		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || retreatTimer > 0 || isDashBuff || isKitingPhase || isJumpSlashing) {
+		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || retreatTimer > 0 || isDashBuff || isJumpSlashing || isKitingPhase) {
 			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) {
 				return true; 
 			}
@@ -151,6 +160,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		EntityLivingBase lentity = theMaid.getAttackTarget();
+		if (this.isKitingPhase && this.threatTarget != null && this.threatTarget.isEntityAlive()) {
+			lentity = this.threatTarget;
+		}
+
 		if (lentity == null || entityTarget != lentity || entityTarget.isDead || !entityTarget.isEntityAlive()) {
 			resetTask();
 			return false;
@@ -159,6 +172,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return false;
 		}
 		
+		// 绝境期间无视寻路丢失
 		if (!isReroute && !this.isKitingPhase) {
 			if (theMaid.getNavigator().noPath()) {
 				return false;
@@ -183,6 +197,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		if (isKitingPhase) {
 			isKitingPhase = false;
+			threatTarget = null;
 		}
 
 		if (isJumpSlashing) {
@@ -206,37 +221,79 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return;
 		}
 
+		// 常规阶段一直盯怪
 		if (!this.isKitingPhase) {
 			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 		}
 
 		// =======================================================
-		// 0. 绝境状态机与强制动作熔断机制 (10% - 20% 阈值)
+		// 0. 绝境状态机与专属雷达接管 (10% - 20% 阈值)
 		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 		if (hpPct <= 0.10F) {
 			if (!this.isKitingPhase) {
-				this.isKitingPhase = true;
-				this.isDashBuff = false;
-				this.pendingDash = false;
-				this.pendingBackstep = false;
-				if (this.isJumpSlashing) {
-					this.isJumpSlashing = false;
-					theMaid.setNoGravity(false);
+				// 🌟 威胁过滤机制：判断怪是否在打她或主人
+				boolean isThreat = false;
+				EntityLivingBase master = null;
+				if (theMaid.getMaidMasterEntity() instanceof EntityLivingBase) {
+					master = (EntityLivingBase) theMaid.getMaidMasterEntity();
 				}
-				this.setMaidOverDrive(0);
-				this.rescueBerserkTimer = 0;
-				theMaid.getNavigator().clearPath();
+				if (entityTarget.getRevengeTarget() == theMaid || (master != null && entityTarget.getRevengeTarget() == master)) {
+					isThreat = true;
+				}
+				if (!isThreat && entityTarget instanceof EntityLiving) {
+					EntityLiving el = (EntityLiving) entityTarget;
+					if (el.getAttackTarget() == theMaid || (master != null && el.getAttackTarget() == master)) {
+						isThreat = true;
+					}
+				}
+
+				if (isThreat) {
+					// 是仇恨目标！开启专属雷达，隔离全局仇恨！
+					this.isKitingPhase = true;
+					this.threatTarget = entityTarget;
+					theMaid.setAttackTarget(null);
+					theMaid.setRevengeTarget(null);
+
+					this.isDashBuff = false;
+					this.pendingDash = false;
+					this.pendingBackstep = false;
+					if (this.isJumpSlashing) {
+						this.isJumpSlashing = false;
+						theMaid.setNoGravity(false);
+					}
+					this.setMaidOverDrive(0);
+					this.rescueBerserkTimer = 0;
+					theMaid.getNavigator().clearPath();
+				} else {
+					// 怪物没仇恨，放弃任务，解除锁定
+					theMaid.setAttackTarget(null);
+					theMaid.setRevengeTarget(null);
+					return;
+				}
 			}
 		} else if (hpPct >= 0.20F) {
-			this.isKitingPhase = false;
+			if (this.isKitingPhase) {
+				this.isKitingPhase = false;
+				if (this.threatTarget != null && this.threatTarget.isEntityAlive()) {
+					theMaid.setAttackTarget(this.threatTarget);
+				}
+				this.threatTarget = null;
+			}
 		}
 
 		// =======================================================
-		// 🌟 1. 绝境专属：苦力怕式 一击脱离 (Hit & Run) + 防穿墙
+		// 🌟 1. 绝境专属：专属雷达 + 长时逃亡 + 110度刺杀判定
 		// =======================================================
 		if (this.isKitingPhase) {
 			
+			if (this.threatTarget == null || this.threatTarget.isDead) {
+				resetTask();
+				return;
+			}
+			
+			EntityLivingBase currentThreat = this.threatTarget;
+
 			if (this.actionDelayTimer > 0) {
 				this.actionDelayTimer--;
 			}
@@ -252,8 +309,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.setHealth(1.0F); 
 				}
 
-				double tdx = entityTarget.posX - theMaid.posX;
-				double tdz = entityTarget.posZ - theMaid.posZ;
+				double tdx = currentThreat.posX - theMaid.posX;
+				double tdz = currentThreat.posZ - theMaid.posZ;
 				float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
 				theMaid.rotationYaw = targetYaw;
 				theMaid.rotationYawHead = targetYaw;
@@ -262,7 +319,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 				theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + theMaid.getRNG().nextFloat() * 0.4F);
 				
-				this.actionDelayTimer = getWeaponCooldown() + 10; 
+				// 被打后也要强制拉开长距离！
+				this.actionDelayTimer = getWeaponCooldown() + 40; 
 				return; 
 			}
 
@@ -270,17 +328,16 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.maidAvatar.stopActiveHand();
 			}
 
-			// 🗡️ 刺客拉扯状态机
+			// 🗡️ 刺客拉扯状态机 (使用专属雷达目标 currentThreat)
 			if (this.actionDelayTimer > 0) {
-				// 【逃离阶段】
-				double distSq = theMaid.getDistanceSq(entityTarget);
-				if (distSq < 64.0D) { 
+				// 【长效逃亡阶段】没逃够时间，绝不回头！
+				double distSq = theMaid.getDistanceSq(currentThreat);
+				if (distSq < 100.0D) { // 10格危险区疯狂往外跑
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
 						net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
-							theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
+							theMaid, 16, 7, new net.minecraft.util.math.Vec3d(currentThreat.posX, currentThreat.posY, currentThreat.posZ)
 						);
 						if (safePos != null) {
-							// 🌟 修复飙车：将 1.5F 降至 1.25F (原版疾跑速度)，跑得快但不鬼畜
 							theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.25F); 
 						}
 					}
@@ -290,30 +347,49 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					}
 				}
 			} else {
-				// 【刺杀阶段】
-				double survivalMaxReach = 3.0D + (double)entityTarget.width / 2.0D;
+				// 【刺杀阶段】冷却完毕，开始反打
+				double survivalMaxReach = 3.0D + (double)currentThreat.width / 2.0D;
 				double atkRangeSq = survivalMaxReach * survivalMaxReach;
-				
-				double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
+				double currentDistSq = theMaid.getDistanceSq(currentThreat.posX, currentThreat.getEntityBoundingBox().minY, currentThreat.posZ);
 				
 				if (currentDistSq <= atkRangeSq) {
-					theMaid.attackEntityAsMob(entityTarget);
-					theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+					// 到达攻击距离，先计算角度！
+					double tdx = currentThreat.posX - theMaid.posX;
+					double tdz = currentThreat.posZ - theMaid.posZ;
+					float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
 					
-					if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
-						worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
-						if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+					// 获取视角差值（将偏转角度限制在 -180 ~ +180 之间）
+					float yawDiff = MathHelper.wrapDegrees(theMaid.rotationYawHead - targetYaw);
+					
+					// 强制转身对准
+					theMaid.rotationYaw = targetYaw;
+					theMaid.rotationYawHead = targetYaw;
+					theMaid.renderYawOffset = targetYaw;
+
+					// 🌟 110度视角判定：只有当偏差角在 55 度范围内时，才进行处决！
+					if (Math.abs(yawDiff) <= 55.0F) {
+						theMaid.attackEntityAsMob(currentThreat);
+						theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+						
+						if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
+							worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
+							if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, currentThreat.posX, currentThreat.posY + (currentThreat.height / 2.0F), currentThreat.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+						}
+						
+						// 砍完一刀，获取长达 2 秒 (40 Tick) 的逃亡时间！
+						this.actionDelayTimer = getWeaponCooldown() + 40; 
 					}
+					// 如果视角不到 110 度，本 Tick 只做转身，不触发武器 CD，下一 Tick 对准了再砍！
 					
-					this.actionDelayTimer = getWeaponCooldown() + 15; 
 				} else {
+					// 还没够到 3 格，加速朝着怪冲！
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
-						// 🌟 修复飙车：接近速度降至 1.15F
-						theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.15F);
+						theMaid.getNavigator().tryMoveToXYZ(currentThreat.posX, currentThreat.posY, currentThreat.posZ, moveSpeed * 1.15F);
 					}
 				}
 			}
 
+			// 🛑 绝对熔断：绝境逻辑结束，拦截下方所有代码！
 			return; 
 		}
 
@@ -352,7 +428,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			this.jumpSlashTimer++;
 			theMaid.fallDistance = 0.0F;
 			
-			// 🌟 核心防穿墙：跳劈中如果撞墙，强制取消水平位移！
 			if (theMaid.collidedHorizontally) {
 				theMaid.motionX = 0.0D;
 				theMaid.motionZ = 0.0D;
@@ -408,7 +483,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (this.isDashBuff) {
 			this.dashTimer++;
 			
-			// 🌟 核心防穿墙：突进中撞墙，立刻解除突进状态并停步！
 			if (this.dashTimer > 15 || (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) || theMaid.collidedHorizontally) {
 				this.isDashBuff = false;
 				theMaid.hurtResistantTime = 0;
@@ -421,7 +495,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.renderYawOffset = theMaid.rotationYaw;
 
 				if (distance > 1.5D && distance < 10.0D) {
-					// 🌟 限速防穿墙：突进速度从 0.6D 降至安全的 0.35D
 					theMaid.motionX = (dX / distance) * 0.35D;
 					theMaid.motionZ = (dZ / distance) * 0.35D;
 					theMaid.velocityChanged = true;
@@ -485,7 +558,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						
 						double dX = theMaid.posX - entityTarget.posX; double dZ = theMaid.posZ - entityTarget.posZ; double distance = Math.sqrt(dX * dX + dZ * dZ);
 						if (distance >= 0.0001D) {
-							// 🌟 限速防穿墙：后撤步追击从 0.4D 降至安全的 0.35D
 							theMaid.motionX = (dX / distance) * 0.35D; 
 							theMaid.motionZ = (dZ / distance) * 0.35D; 
 							theMaid.motionY = 0.0D; 
