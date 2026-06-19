@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (修复植物人瘫痪Bug + 纯净绝境控距逃跑 + 免死盾反)
+ * メイドさんの直接攻撃系処理 (完美复原苦力怕躲避逻辑 + 免死盾反 + 常规动作)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -42,15 +42,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	// 🌟 绝境求生核心变量
 	protected boolean isKitingPhase = false;
-	protected int dodgeCooldown = 0;
 
 	// 🌟 跳劈处决核心变量
 	protected boolean isJumpSlashing = false;
 	protected int jumpSlashTimer = 0;
 	protected double jumpDirX = 0;
 	protected double jumpDirZ = 0;
-
-	private int logSpamLimiter = 0;
 
 	public EntityAILMAttackOnCollide(EntityLittleMaid par1EntityLittleMaid, float par2, boolean par3) {
 		theMaid = par1EntityLittleMaid;
@@ -177,7 +174,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		isDashBuff = false;
 		dashTimer = 0;
 		isKitingPhase = false;
-		dodgeCooldown = 0;
 		isGuard = false;
 
 		if (isJumpSlashing) {
@@ -194,7 +190,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public void updateTask() {
-		logSpamLimiter++;
 
 		if (entityTarget == null || entityTarget.isDead || !entityTarget.isEntityAlive()) {
 			resetTask();
@@ -221,35 +216,34 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			this.isKitingPhase = false;
 		}
 
-		// 常规阶段盯着怪物看，绝境为了跑路不强制看怪物
+		// 常规阶段盯着怪物看，绝境为了跑得快不强制看怪物（原版逃跑也是不看人的）
 		if (!this.isKitingPhase) {
 			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 		}
 
 		// =======================================================
-		// 🌟 1. 绝境：纯净控距拉扯 + 免死背身盾反 (修复计时器瘫痪)
+		// 🌟 1. 绝境：1:1复刻苦力怕逃避 AI + 免死背身盾反
 		// =======================================================
 		if (this.isKitingPhase) {
 			
-			// 🌟 核心修复：绝境内必须让计时器倒数，否则就会变永久植物人！
 			if (this.actionDelayTimer > 0) {
 				this.actionDelayTimer--;
 			}
 
-			// 🛡️ 绝对防线：持续赋予抗性提升5(100%免伤)，兜底爆炸和高伤秒杀
+			// 🛡️ 兜底防爆：绝境提供全免伤抗性
 			theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 10, 4, false, false));
 
-			// 🛡️ 伪·完美格挡：当受到攻击的瞬间 (hurtTime == 10 为受击第一帧)
+			// 🛡️ 伪·完美格挡
 			if (theMaid.hurtTime == 10) {
-				theMaid.getNavigator().clearPath(); // 立刻刹车
-
-				// 没收真实伤害/魔法伤害，并强制兜底锁血 1 点
+				theMaid.getNavigator().clearPath(); // 被打时立刻刹车
+				
+				// 兜底锁血 1 点
 				theMaid.heal(theMaid.getMaxHealth() * 0.1F); 
 				if (theMaid.getHealth() < 1.0F) {
 					theMaid.setHealth(1.0F); 
 				}
 
-				// 瞬间 180 度大回头锁定怪物
+				// 瞬间转身向敌
 				double tdx = entityTarget.posX - theMaid.posX;
 				double tdz = entityTarget.posZ - theMaid.posZ;
 				float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
@@ -257,60 +251,43 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.rotationYawHead = targetYaw;
 				theMaid.renderYawOffset = targetYaw;
 
-				// 强制举起副手盾牌，并播放打铁音效
+				// 举盾并播放音效
 				theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 				theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + theMaid.getRNG().nextFloat() * 0.4F);
 				
-				// 给一个 10 Tick 的硬直停顿，装作被击退
-				this.actionDelayTimer = 10; 
+				this.actionDelayTimer = 10; // 给 10 Tick 的被击退硬直时间
 				return; 
 			}
 
-			// 🌟 只要硬直时间没结束，就不允许移动！
+			// 盾反硬直期间不许移动
 			if (this.actionDelayTimer > 0) {
 				return;
 			}
 
-			// 盾反硬直结束，立马放下盾牌开始撒丫子跑路
+			// 硬直结束，立刻放下盾牌开跑
 			theMaid.maidAvatar.stopActiveHand();
 			
+			// 🌟 核心：原版逃跑逻辑 (绝不中途重新算路！)
 			double distSq = theMaid.getDistanceSq(entityTarget);
 
-			if (distSq < 25.0D) { // 距离小于 5 格
-				if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
+			if (distSq < 49.0D) { // 距离小于 7 格，处于危险区
+				// 🌟 只有当“当前没有任何逃跑路线”时，才寻找新路线！
+				if (theMaid.getNavigator().noPath()) {
+					// 这是村民、苦力怕、豹猫都在用的顶级安全区搜索器
 					net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
 						theMaid, 16, 7, new net.minecraft.util.math.Vec3d(entityTarget.posX, entityTarget.posY, entityTarget.posZ)
 					);
 					if (safePos != null) {
+						// 找到路了，直接 1.5倍 移速全力冲刺！
 						theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.5F); 
-					} else if (distSq < 9.0D && theMaid.onGround) {
-						// 寻路失败且贴脸(小于3格)，物理推力除胶！
-						double dx = theMaid.posX - entityTarget.posX;
-						double dz = theMaid.posZ - entityTarget.posZ;
-						double len = Math.sqrt(dx * dx + dz * dz);
-						if (len > 0.001D) {
-							theMaid.motionX += (dx / len) * 0.25D;
-							theMaid.motionZ += (dz / len) * 0.25D;
-							theMaid.velocityChanged = true;
-						}
 					}
 				}
-			} else if (distSq > 42.25D) { // 距离大于 6.5 格
-				if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
-					theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, moveSpeed * 1.0F);
-				}
 			} else {
-				// 5 ~ 6.5 的完美安全区，停步
+				// 跑到 7 格开外了，绝对安全，清空寻路停下休息
 				theMaid.getNavigator().clearPath();
 			}
-			
-			// 纯净控距日志 (现在绝对能刷出来了)
-			if (logSpamLimiter % 20 == 0) {
-				System.out.println("[LMR-KITE-PURE] Dist: " + String.format("%.2f", Math.sqrt(distSq)) + 
-								   " | ShieldStunCD: " + this.actionDelayTimer);
-			}
 
-			// 🛑 绝对熔断：绝境状态到此为止！下半部分的代码绝对不会执行！
+			// 🛑 绝对熔断：绝境状态到此为止！
 			return; 
 		}
 
@@ -445,9 +422,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 					}
 					theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 5, 1, false, false));
-					if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 2 == 0) {
-						((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.CRIT, theMaid.posX + (theMaid.getRNG().nextFloat()-0.5), theMaid.posY + 0.5D, theMaid.posZ + (theMaid.getRNG().nextFloat()-0.5), 2, 0.0D, 0.0D, 0.0D, 0.1D);
-					}
 				}
 				if (pendingDash) {
 					this.isGuard = true;
