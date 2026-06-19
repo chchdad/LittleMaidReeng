@@ -86,14 +86,14 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 				return true;
 			}
 			
-			System.out.println("[LMR-RADAR-DEBUG] 正在鉴定潜在目标: " + lentity.getName() + " | 距主人: " + lentity.getDistanceSq(theMaid.getMaidMasterEntity()) + " | 距女仆: " + lentity.getDistanceSq(theMaid));
+			//System.out.println("[LMR-RADAR-DEBUG] 正在鉴定潜在目标: " + lentity.getName() + " | 距主人: " + lentity.getDistanceSq(theMaid.getMaidMasterEntity()) + " | 距女仆: " + lentity.getDistanceSq(theMaid));
 			
 			if (lentity.isEntityAlive() && this.isSuitableTargetLM(lentity, false)) {
 				System.out.println("[LMR-RADAR-DEBUG] -> 鉴定通过！雷达最终锁定: " + lentity.getName());
 				this.targetEntity = lentity;
 				return true;
 			} else {
-				System.out.println("[LMR-RADAR-DEBUG] -> 鉴定失败！直接丢弃: " + lentity.getName());
+				//System.out.println("[LMR-RADAR-DEBUG] -> 鉴定失败！直接丢弃: " + lentity.getName());
 			}
 		}
 
