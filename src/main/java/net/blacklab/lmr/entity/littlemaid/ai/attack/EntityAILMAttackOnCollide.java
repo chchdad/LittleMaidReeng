@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (绝境专属：纯数学伪近战扇形判定 + 严格敌我识别 IFF)
+ * メイドさんの直接攻撃系処理 (绝境专属：纯数学伪近战扇形判定 + 严格敌我识别 IFF + 修复编译映射)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -313,10 +313,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						theMaid.getJumpHelper().setJumping();
 					}
 				}
-				if (logSpamLimiter % 15 == 0) {
-					if (tooCloseToThreat) System.err.println("[LMR-SPEED-DEBUG] 🚨 怪物贴脸！紧急滑步避险！");
-					else System.err.println("[LMR-SPEED-DEBUG] ⏱️ 武器冷却中！持续后撤！");
-				}
 			} 
 			else {
 				// 🌟 “伪近战”极限输出距离：3.0格 + 怪物半径
@@ -379,18 +375,25 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 								for (EntityLivingBase aoeTarget : list) {
 									// 🛡️ 绝对豁免层
-									if (aoeTarget == theMaid || aoeTarget == targetToProcess) continue; // 不打自己和主目标
-									if (aoeTarget instanceof net.minecraft.entity.player.EntityPlayer) continue; // 绝对不打玩家
-									if (theMaid.isOnSameTeam(aoeTarget)) continue; // 绝对不打同队
-									// 不打别人的宠物
-									if (aoeTarget instanceof net.minecraft.entity.passive.IEntityOwnable) {
-										if (((net.minecraft.entity.passive.IEntityOwnable)aoeTarget).getOwnerId() != null) continue; 
+									if (aoeTarget == theMaid || aoeTarget == targetToProcess) continue; 
+									if (aoeTarget instanceof net.minecraft.entity.player.EntityPlayer) continue; 
+									if (theMaid.isOnSameTeam(aoeTarget)) continue; 
+									// 修复：使用正确的 IEntityOwnable 包名
+									if (aoeTarget instanceof net.minecraft.entity.IEntityOwnable) {
+										if (((net.minecraft.entity.IEntityOwnable)aoeTarget).getOwnerId() != null) continue; 
 									}
 
 									// ⚔️ 敌意判定与同类株连
 									boolean isHostile = (aoeTarget instanceof net.minecraft.entity.monster.IMob);
-									boolean isAttackingMaid = (aoeTarget.getAttackTarget() == theMaid || aoeTarget.getRevengeTarget() == theMaid);
-									boolean isAttackingOwner = (owner instanceof EntityLivingBase && (aoeTarget.getAttackTarget() == owner || aoeTarget.getRevengeTarget() == owner));
+									boolean isAttackingMaid = (aoeTarget.getRevengeTarget() == theMaid);
+									boolean isAttackingOwner = (owner instanceof EntityLivingBase && aoeTarget.getRevengeTarget() == owner);
+									
+									// 修复：基类强转判定
+									if (aoeTarget instanceof EntityLiving) {
+										isAttackingMaid = isAttackingMaid || (((EntityLiving)aoeTarget).getAttackTarget() == theMaid);
+										isAttackingOwner = isAttackingOwner || (owner != null && ((EntityLiving)aoeTarget).getAttackTarget() == owner);
+									}
+									
 									boolean isSameClassAsTarget = (aoeTarget.getClass() == targetToProcess.getClass());
 
 									// 只要符合其一，就是敌人
@@ -414,7 +417,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						
 						this.actionDelayTimer = getWeaponCooldown() + 25; 
 						theMaid.getNavigator().clearPath();
-						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 伪近战系统激活！破无敌帧打击命中: " + isHit);
+						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 伪近战剑气挥出！命中判定: " + isHit);
 					}
 				} else {
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
