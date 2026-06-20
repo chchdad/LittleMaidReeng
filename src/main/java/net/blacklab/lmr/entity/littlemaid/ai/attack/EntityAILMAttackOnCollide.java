@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (绝境专属：突刺拉扯战术 + 三倍CD + 箭矢侧偏闪避机制)
+ * メイドさんの直接攻撃系処理 (绝境专属：专属仇恨斥力场 + 物理燕返突刺 + 三倍CD拉扯)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -83,17 +83,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			attackSpeed = (float) speedAttr.getAttributeValue();
 		}
 		return (int)(20.0F / Math.max(0.1F, attackSpeed));
-	}
-
-	private void fleeLikeFromCreeper(EntityLivingBase threat) {
-		if (theMaid.getNavigator().noPath() || logSpamLimiter % 5 == 0) {
-			net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
-				theMaid, 16, 7, new net.minecraft.util.math.Vec3d(threat.posX, threat.posY, threat.posZ)
-			);
-			if (safePos != null) {
-				theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.35F); 
-			}
-		}
 	}
 
 	// 🌟 全局记忆同步锁
@@ -261,22 +250,18 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		syncKitingState(targetToProcess);
 		
 		// =========================================================
-		// 🏹 核心黑科技：防箭矢侧滑闪避机制 (全阶段生效)
+		// 🏹 独立机制：防箭矢侧滑闪避 (全阶段生效)
 		// =========================================================
 		if (this.dodgeCooldown > 0) this.dodgeCooldown--;
 
 		if (this.dodgeCooldown <= 0) {
-			// 扫描周围 6 格内的所有实体
 			java.util.List<Entity> projectiles = worldObj.getEntitiesWithinAABBExcludingEntity(theMaid, theMaid.getEntityBoundingBox().grow(6.0D, 2.0D, 6.0D));
 			for (Entity proj : projectiles) {
-				// 如果它是箭、投掷物或者火球
 				if (proj instanceof net.minecraft.entity.projectile.EntityArrow || 
 					proj instanceof net.minecraft.entity.projectile.EntityThrowable || 
 					proj instanceof net.minecraft.entity.projectile.EntityFireball) {
 					
-					// 且正在高速飞行
 					if (proj.motionX * proj.motionX + proj.motionZ * proj.motionZ > 0.05D) {
-						// 1. 获取箭矢飞行的方向
 						double dodgeDirX = -proj.motionZ;
 						double dodgeDirZ = proj.motionX;
 						
@@ -285,29 +270,29 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							dodgeDirX /= len;
 							dodgeDirZ /= len;
 							
-							// 2. 随机向左侧或右侧翻滚
 							if (theMaid.getRNG().nextBoolean()) {
 								dodgeDirX = -dodgeDirX;
 								dodgeDirZ = -dodgeDirZ;
 							}
 							
-							// 3. 施加爆发性的侧移速度和小跳跃
 							theMaid.motionX = dodgeDirX * 0.6D;
 							theMaid.motionZ = dodgeDirZ * 0.6D;
 							if (theMaid.onGround) {
 								theMaid.motionY = 0.25D; 
 							}
 							
-							// 4. 进入 40~60 刻的闪避冷却 (相当于小白拉弓的时间)
 							this.dodgeCooldown = 40 + theMaid.getRNG().nextInt(20); 
 							System.err.println("[LMR-SPEED-DEBUG] 💨 侦测到危险飞行物！战术侧滑闪避！");
-							break; // 躲一次就够了，结束扫描
+							break; 
 						}
 					}
 				}
 			}
 		}
 
+		// =========================================================
+		// 🛡️ 绝境求生模式：突刺 + 仇恨斥力场拉扯
+		// =========================================================
 		if (this.isKitingPhase) {
 			if (this.actionDelayTimer > 0) this.actionDelayTimer--;
 
@@ -337,12 +322,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 			
 			// =========================================================
-			// 🗡️ 绝境突刺状态机 (冲过去砍)
+			// 🗡️ 核心逻辑：绝境物理突刺 (原汁原味碰撞命中)
 			// =========================================================
 			if (this.isDashBuff) {
 				this.dashTimer++;
 				
-				// 突刺最长持续 15 刻，如果撞墙或速度变慢就取消
 				if (this.dashTimer > 15 || (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D && this.dashTimer > 3) || theMaid.collidedHorizontally) {
 					this.isDashBuff = false;
 				} else {
@@ -353,33 +337,35 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.rotationYaw = (float)(Math.atan2(dZ, dX) * 180.0D / Math.PI) - 90.0F;
 					theMaid.renderYawOffset = theMaid.rotationYaw;
 
-					// 冲锋接近过程
+					// 1. 高速突进过程
 					if (distance > 1.5D && distance < 10.0D) {
-						theMaid.motionX = (dX / distance) * 0.40D; // 突刺速度略快
+						theMaid.motionX = (dX / distance) * 0.40D; 
 						theMaid.motionZ = (dZ / distance) * 0.40D;
 						return; 
 					} 
-					// 贴脸！发生碰撞！
+					// 2. 物理贴脸，直接判定原版斩击！
 					else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D).intersects(targetToProcess.getEntityBoundingBox())) {
-						// 调用最原汁原味的攻击
+						
+						targetToProcess.hurtResistantTime = 0; 
 						boolean isHit = theMaid.attackEntityAsMob(targetToProcess);
 						
 						this.isDashBuff = false;
-						// 🌟【核心要求】攻击冷却几倍：这里设为正常冷却的 3 倍！
+						
+						// 🌟 三倍漫长武器冷却
 						this.actionDelayTimer = getWeaponCooldown() * 3; 
 						
+						// 🌟 攻击卡肉：命中瞬间速度重置归零！
 						theMaid.motionX = 0.0D; 
 						theMaid.motionZ = 0.0D;
 						theMaid.velocityChanged = true; 
 
 						if (isHit) {
-							// 额外击退，拉开身位
 							targetToProcess.knockBack(theMaid, 1.2F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
 							theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
 							if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.CRIT, targetToProcess.posX, targetToProcess.posY + targetToProcess.height / 2.0F, targetToProcess.posZ, 15, 0.3D, 0.3D, 0.3D, 0.2D);
 						}
 						
-						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 绝境突刺命中！进入三倍漫长冷却！");
+						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 燕返突刺结束！物理命中: " + isHit + "！速度重置并进入三倍长冷却！");
 						return; 
 					} else {
 						this.isDashBuff = false;
@@ -387,53 +373,81 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				}
 			}
 
+			// =========================================================
+			// 🛡️ 高维战术：仇恨专属斥力场走位 (Multi-Threat Vector Field)
+			// =========================================================
 			double distSq = theMaid.getDistanceSq(targetToProcess);
-			boolean isChasedByMonster = (targetToProcess.getRevengeTarget() == theMaid);
+			boolean isTargetChasingMaid = (targetToProcess.getRevengeTarget() == theMaid);
 			if (targetToProcess instanceof EntityLiving) {
-				isChasedByMonster = isChasedByMonster || (((EntityLiving)targetToProcess).getAttackTarget() == theMaid);
+				isTargetChasingMaid = isTargetChasingMaid || (((EntityLiving)targetToProcess).getAttackTarget() == theMaid);
 			}
 
-			// 危险报警距离设为 2.5格 (6.25D)
-			boolean tooCloseToThreat = isChasedByMonster && (distSq < 6.25D);
+			boolean tooCloseToThreat = isTargetChasingMaid && (distSq < 6.25D);
 
-			// =========================================================
-			// 🛡️ 战术分支：拉扯倒车 vs 发起突刺
-			// =========================================================
-			
-			// 分支 1: 如果冷却好了，且没在突刺中，距离在 10 格内 -> 💥 发起突刺！
-			if (this.actionDelayTimer <= 0 && !this.isDashBuff && distSq <= 100.0D) {
+			// 分支 1: 如果冷却完毕，距离合适，发动突刺！
+			if (this.actionDelayTimer <= 0 && !this.isDashBuff && distSq <= 100.0D && distSq > 2.25D) {
 				this.isDashBuff = true;
 				this.dashTimer = 0;
 				theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_NODAMAGE, 1.0F, 0.8F);
 				theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
-				System.err.println("[LMR-SPEED-DEBUG] 💨 冷却就绪！发起绝境突刺！");
+				System.err.println("[LMR-SPEED-DEBUG] 💨 冷却就绪！发起绝境燕返突刺！");
 				return;
 			}
 			
-			// 分支 2: 如果武器在冷却中，或者怪物靠得太近 -> 🚙 物理防壁咚拉扯倒车！ (你要求的保留不变)
+			// 分支 2: 武器在漫长的冷却中，或者怪物贴得太近 -> 执行仇恨专属斥力场拉扯
 			if (this.actionDelayTimer > 0 || tooCloseToThreat) {
-				double dX = theMaid.posX - targetToProcess.posX;
-				double dZ = theMaid.posZ - targetToProcess.posZ;
-				double distance = Math.sqrt(dX * dX + dZ * dZ);
+				double totalPushX = 0.0D;
+				double totalPushZ = 0.0D;
+				int threatCount = 0;
 
-				if (distance > 0.0001D) {
+				// 扫描周围 7 格内的所有生物
+				java.util.List<EntityLivingBase> threats = worldObj.getEntitiesWithinAABB(EntityLivingBase.class, theMaid.getEntityBoundingBox().grow(7.0D, 3.0D, 7.0D));
+				for (EntityLivingBase threat : threats) {
+					if (threat == theMaid || threat.isDead) continue;
+					
+					// 🌟 核心过滤：只有仇恨目标是女仆的怪物，才会产生斥力！视发呆的怪物如无物！
+					boolean isChasingMaid = (threat.getRevengeTarget() == theMaid);
+					if (threat instanceof EntityLiving) {
+						isChasingMaid = isChasingMaid || (((EntityLiving)threat).getAttackTarget() == theMaid);
+					}
+					
+					if (isChasingMaid) {
+						double dX = theMaid.posX - threat.posX;
+						double dZ = theMaid.posZ - threat.posZ;
+						double dist = Math.sqrt(dX * dX + dZ * dZ);
+						
+						// 根据距离产生反向斥力（距离越近，斥力权重越大）
+						if (dist > 0.0001D && dist < 8.0D) {
+							double weight = 1.0D / dist; 
+							totalPushX += (dX / dist) * weight;
+							totalPushZ += (dZ / dist) * weight;
+							threatCount++;
+						}
+					}
+				}
+
+				if (threatCount > 0) {
 					theMaid.getNavigator().clearPath();
 					
+					// 视线死死锁住当前主目标
 					float targetYaw = (float)(Math.atan2(targetToProcess.posZ - theMaid.posZ, targetToProcess.posX - theMaid.posX) * 180.0D / Math.PI) - 90.0F;
 					theMaid.rotationYaw = targetYaw;
 					theMaid.rotationYawHead = targetYaw;
 					theMaid.renderYawOffset = targetYaw;
 
-					theMaid.motionX = (dX / distance) * 0.28D;
-					theMaid.motionZ = (dZ / distance) * 0.28D;
+					// 结算最终的走位向量
+					double len = Math.sqrt(totalPushX * totalPushX + totalPushZ * totalPushZ);
+					if (len > 0.0001D) {
+						theMaid.motionX = (totalPushX / len) * 0.28D;
+						theMaid.motionZ = (totalPushZ / len) * 0.28D;
+					}
 
 					if (theMaid.collidedHorizontally && theMaid.onGround) {
 						theMaid.getJumpHelper().setJumping();
 					}
 				}
 				if (logSpamLimiter % 15 == 0) {
-					if (tooCloseToThreat) System.err.println("[LMR-SPEED-DEBUG] 🚨 怪物贴近！倒车拉扯中！");
-					else System.err.println("[LMR-SPEED-DEBUG] ⏱️ 漫长冷却中！倒车拉扯中！");
+					System.err.println("[LMR-SPEED-DEBUG] ⏱️ 冷却/防贴脸！合成 " + threatCount + " 个追兵的斥力，计算极限走位路线中！");
 				}
 			} 
 			// 分支 3: 距离过远，尝试靠近
@@ -531,8 +545,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return; 
 		}
 
-		// 🌟 突进(漩涡)状态保护锁
-		if (this.isDashBuff) {
+		// 🌟 突进(漩涡)状态保护锁 (常规模式)
+		if (this.isDashBuff && !this.isKitingPhase) {
 			this.dashTimer++;
 			
 			if (this.dashTimer > 15 || (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) || theMaid.collidedHorizontally) {
