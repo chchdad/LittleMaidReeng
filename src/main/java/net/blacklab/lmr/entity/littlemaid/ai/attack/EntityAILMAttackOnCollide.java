@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (绝境专属：纯数学伪近战扇形判定 + 严格敌我识别 IFF + 修复编译映射)
+ * メイドさんの直接攻撃系処理 (恢复全量测试日志 + 扩大伪近战扇形触发角)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -165,6 +165,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		EntityLivingBase lentity = this.isKitingPhase ? this.threatTarget : theMaid.getAttackTarget();
 		if(lentity != null && !lentity.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
+			
+			float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
+			String stateStr = "【🟢常规战士】";
+			if (this.isKitingPhase) stateStr = "【🚨绝境求生】";
+			else if (theMaid.isBloodsuck()) stateStr = "【💢护主狂暴】";
+			System.err.println("[LMR-STATE-DEBUG] 👁️ 锁定新目标: " + lentity.getName() + " | 认知状态: " + stateStr + " | 血量: " + String.format("%.1f", hpPct*100) + "%");
 		}
 		
 		if (!this.isKitingPhase && pathToTarget != null) {
@@ -291,7 +297,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				isChasedByMonster = isChasedByMonster || (((EntityLiving)targetToProcess).getAttackTarget() == theMaid);
 			}
 
-			boolean tooCloseToThreat = isChasedByMonster && (distSq < 7.5D);
+			// 危险报警距离设为 2.5格 (6.25D)
+			boolean tooCloseToThreat = isChasedByMonster && (distSq < 6.25D);
 
 			if (this.actionDelayTimer > 0 || tooCloseToThreat) {
 				double dX = theMaid.posX - targetToProcess.posX;
@@ -313,10 +320,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						theMaid.getJumpHelper().setJumping();
 					}
 				}
+				if (logSpamLimiter % 15 == 0) {
+					if (tooCloseToThreat) System.err.println("[LMR-SPEED-DEBUG] 🚨 怪物贴近警戒线！纯物理倒车滑步中！");
+					else System.err.println("[LMR-SPEED-DEBUG] ⏱️ 武器冷却！纯物理倒车滑步中！");
+				}
 			} 
 			else {
-				// 🌟 “伪近战”极限输出距离：3.0格 + 怪物半径
-				double survivalMaxReach = 3.0D + (double)targetToProcess.width / 2.0D;
+				// 🌟 扩大伪近战剑气的极限射程到 3.5 格！
+				double survivalMaxReach = 3.5D + (double)targetToProcess.width / 2.0D;
 				double atkRangeSq = survivalMaxReach * survivalMaxReach;
 				
 				if (distSq <= atkRangeSq) {
@@ -329,11 +340,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.rotationYawHead = targetYaw;
 					theMaid.renderYawOffset = targetYaw;
 
-					// 只要怪物在面前 55度角内，并且在上述距离内，直接触发伪近战！完全不鸟原版的 canSlashNow
-					if (Math.abs(yawDiff) <= 55.0F) {
+					// 🌟 扩大攻击触发扇面：放宽到正前方 85度角（左右共170度大扇形），防止高速拉扯转身时憋刀！
+					if (Math.abs(yawDiff) <= 85.0F) {
 						
 						// =========================================================
-						// 🗡️ 【伪近战系统】强制破除无敌帧 + 自定义精确打击范围
+						// 🗡️ 【伪近战系统】强行灌入纯数值伤害 + 严格识别
 						// =========================================================
 						
 						float baseDmg = (float)theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
@@ -343,28 +354,26 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						}
 						float totalDmg = baseDmg + enchantDmg;
 						
-						// 1. 强制清零无敌帧，强行命中主目标！
+						// 1. 强制清零无敌帧
 						targetToProcess.hurtResistantTime = 0;
 						DamageSource desperateStrike = DamageSource.causeMobDamage(theMaid);
 						boolean isHit = targetToProcess.attackEntityFrom(desperateStrike, totalDmg);
 						
+						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 伪近战剑气触发！基础伤:" + baseDmg + " 总伤:" + totalDmg + " 系统命中反馈:" + isHit);
+
 						if (isHit) {
-							// 强力击退
+							// 命中后施加击退
 							targetToProcess.knockBack(theMaid, 0.5F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
 							
-							// 扣武器耐久
 							if (!theMaid.getHeldItemMainhand().isEmpty()) {
 								theMaid.getHeldItemMainhand().damageItem(1, theMaid);
 							}
 
-							// 播放挥砍动画和音效
 							theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
 							worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
 							if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, targetToProcess.posX, targetToProcess.posY + (targetToProcess.height / 2.0F), targetToProcess.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
 							
-							// =========================================================
-							// 🌪️ 伪近战·株连横扫 (严格 IFF 敌我识别)
-							// =========================================================
+							// 🌪️ 同类株连横扫 (严格敌我过滤)
 							if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
 								java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(EntityLivingBase.class, theMaid.getEntityBoundingBox().grow(2.5D, 1.5D, 2.5D));
 								float sweepRatio = net.minecraft.enchantment.EnchantmentHelper.getSweepingDamageRatio(theMaid);
@@ -373,22 +382,19 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 								double yawRad = theMaid.renderYawOffset * Math.PI / 180.0D;
 								double lookX = -Math.sin(yawRad); double lookZ = Math.cos(yawRad);
 
+								int sweptCount = 0;
 								for (EntityLivingBase aoeTarget : list) {
-									// 🛡️ 绝对豁免层
 									if (aoeTarget == theMaid || aoeTarget == targetToProcess) continue; 
 									if (aoeTarget instanceof net.minecraft.entity.player.EntityPlayer) continue; 
 									if (theMaid.isOnSameTeam(aoeTarget)) continue; 
-									// 修复：使用正确的 IEntityOwnable 包名
 									if (aoeTarget instanceof net.minecraft.entity.IEntityOwnable) {
 										if (((net.minecraft.entity.IEntityOwnable)aoeTarget).getOwnerId() != null) continue; 
 									}
 
-									// ⚔️ 敌意判定与同类株连
 									boolean isHostile = (aoeTarget instanceof net.minecraft.entity.monster.IMob);
 									boolean isAttackingMaid = (aoeTarget.getRevengeTarget() == theMaid);
 									boolean isAttackingOwner = (owner instanceof EntityLivingBase && aoeTarget.getRevengeTarget() == owner);
 									
-									// 修复：基类强转判定
 									if (aoeTarget instanceof EntityLiving) {
 										isAttackingMaid = isAttackingMaid || (((EntityLiving)aoeTarget).getAttackTarget() == theMaid);
 										isAttackingOwner = isAttackingOwner || (owner != null && ((EntityLiving)aoeTarget).getAttackTarget() == owner);
@@ -396,28 +402,27 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 									
 									boolean isSameClassAsTarget = (aoeTarget.getClass() == targetToProcess.getClass());
 
-									// 只要符合其一，就是敌人
 									if (isHostile || isAttackingMaid || isAttackingOwner || isSameClassAsTarget) {
 										double dx = aoeTarget.posX - theMaid.posX; 
 										double dz = aoeTarget.posZ - theMaid.posZ; 
 										double distanceXY = Math.sqrt(dx * dx + dz * dz);
 										if (distanceXY > 0.0001D) {
 											double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
-											// 在正前方 120度角内，或者贴身极近距离
-											if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
-												aoeTarget.hurtResistantTime = 0; // 横扫也破无敌帧
+											if (cosTheta > 0.10D || distanceXY <= 1.5D) { 
+												aoeTarget.hurtResistantTime = 0; 
 												aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
 												aoeTarget.attackEntityFrom(DamageSource.causeMobDamage(theMaid), sweepDamage);
+												sweptCount++;
 											}
 										}
 									}
 								}
+								if (sweptCount > 0) System.err.println("[LMR-SPEED-DEBUG] 🌪️ 伪近战触发株连横扫，波及数量: " + sweptCount);
 							}
 						}
 						
 						this.actionDelayTimer = getWeaponCooldown() + 25; 
 						theMaid.getNavigator().clearPath();
-						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 伪近战剑气挥出！命中判定: " + isHit);
 					}
 				} else {
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
@@ -450,6 +455,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					rescueBerserkTimer = 200; 
 					this.setMaidOverDrive(200); 
 					theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true); 
+					System.err.println("[LMR-SPEED-DEBUG] 💢 触发护主狂暴！");
 				}
 			}
 		}
@@ -460,6 +466,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		// 🌟 终极跳劈状态机 
 		if (this.isJumpSlashing) {
+			if (this.jumpSlashTimer == 0) {
+				System.err.println("[LMR-SPEED-DEBUG] 🦅 触发跳劈！强制起飞");
+			}
 			this.jumpSlashTimer++;
 			theMaid.fallDistance = 0.0F;
 			
@@ -516,6 +525,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		// 🌟 突进(漩涡)状态保护锁
 		if (this.isDashBuff) {
+			if (this.dashTimer == 0) {
+				System.err.println("[LMR-SPEED-DEBUG] 💨 触发漩涡突进！强制物理位移");
+			}
 			this.dashTimer++;
 			
 			if (this.dashTimer > 15 || (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) || theMaid.collidedHorizontally) {
