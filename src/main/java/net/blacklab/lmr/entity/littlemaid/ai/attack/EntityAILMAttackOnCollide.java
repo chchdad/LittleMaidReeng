@@ -13,7 +13,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (带有全面移速排查日志的调试版)
+ * メイドさんの直接攻撃系処理 (移除回血保持绝境测试 + 强行红字输出日志 + 完美苦力怕拉扯)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -66,7 +66,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				method.invoke(overDriveObj, time);
 			}
 		} catch (Exception e) {
-			System.out.println("[LMR-ATTACK-DEBUG] 反射修改红温状态失败: " + e.getMessage());
+			System.err.println("[LMR-ATTACK-DEBUG] 反射修改红温状态失败: " + e.getMessage());
 		}
 	}
 
@@ -243,6 +243,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (this.isKitingPhase) {
 			if (this.actionDelayTimer > 0) this.actionDelayTimer--;
 
+			// 只保留减伤兜底，移除回血
 			theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 10, 4, false, false));
 
 			if (theMaid.hurtTime == 10) {
@@ -278,6 +279,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 			if (this.actionDelayTimer > 0 || tooCloseToThreat) {
 				fleeLikeFromCreeper(targetToProcess);
+				if (logSpamLimiter % 10 == 0) {
+					if (tooCloseToThreat) System.err.println("[LMR-SPEED-DEBUG] 🚨 怪物贴脸！紧急躲避！");
+					else System.err.println("[LMR-SPEED-DEBUG] ⏱️ 武器冷却中！拉扯躲避！");
+				}
 			} 
 			else {
 				double survivalMaxReach = 3.0D + (double)targetToProcess.width / 2.0D;
@@ -302,6 +307,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, targetToProcess.posX, targetToProcess.posY + (targetToProcess.height / 2.0F), targetToProcess.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
 						}
 						this.actionDelayTimer = getWeaponCooldown() + 15; 
+						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 极限距离刺杀完成！开始后撤拉扯！");
 					}
 				} else {
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
@@ -334,7 +340,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					rescueBerserkTimer = 200; 
 					this.setMaidOverDrive(200); 
 					theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true); 
-					System.out.println("[LMR-SPEED-DEBUG]  触发护主狂暴！(设定200Tick)");
+					System.err.println("[LMR-SPEED-DEBUG] 💢 触发护主狂暴！");
 				}
 			}
 		}
@@ -346,7 +352,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		// 🌟 终极跳劈状态机 
 		if (this.isJumpSlashing) {
 			if (this.jumpSlashTimer == 0) {
-				System.out.println("[LMR-SPEED-DEBUG]  触发跳劈！强制起飞");
+				System.err.println("[LMR-SPEED-DEBUG] 🦅 触发跳劈！强制起飞");
 			}
 			this.jumpSlashTimer++;
 			theMaid.fallDistance = 0.0F;
@@ -405,7 +411,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		// 🌟 突进(漩涡)状态保护锁
 		if (this.isDashBuff) {
 			if (this.dashTimer == 0) {
-				System.out.println("[LMR-SPEED-DEBUG]  触发漩涡突进！强制物理位移");
+				System.err.println("[LMR-SPEED-DEBUG] 💨 触发漩涡突进！强制物理位移");
 			}
 			this.dashTimer++;
 			
@@ -516,10 +522,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (distToTarget < 36.0D) burstSpeed = moveSpeed * 1.15F; 
 				
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
-				
-				if (burstSpeed > moveSpeed && logSpamLimiter % 20 == 0) {
-					System.out.println("[LMR-SPEED-DEBUG]  常规寻路爆发加速: " + burstSpeed);
-				}
 
 				double dist = Math.sqrt(distToTarget);
 				if (this.actionDelayTimer <= 0 && dist >= 4.0D && dist <= 8.0D && !this.isDashBuff) {
@@ -601,7 +603,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					if (theMaid.getRNG().nextFloat() < triggerChance) {
 						this.actionDelayTimer = (int)(getWeaponCooldown() * 0.3F); 
 						this.pendingBackstep = true; 
-						System.out.println("[LMR-SPEED-DEBUG]  斩击后触发连招：后撤步准备");
+						System.err.println("[LMR-SPEED-DEBUG] 🤺 斩击后触发连招：后撤步准备！");
 					}
 				} 
 			}
