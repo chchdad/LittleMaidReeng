@@ -144,17 +144,17 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 public class EntityLittleMaid extends EntityTameable implements IMultiModelEntity, IGuiTextureSelect {
-	// ==========================================
+    // ==========================================
 	// 强制躲避爆炸物接口
 	// ==========================================
 	protected int forceAvoidExplosionTimer = 0;
 
 	/**
-	 * 强制女仆将周围环境视为爆炸物，进入逃跑模式
-	 * @param ticks 强制逃跑的持续时间（Tick）
+	 * 对外接口：强制女仆将周围环境视为爆炸物，进入逃跑模式
 	 */
 	public void setForceAvoidExplosion(int ticks) {
 		this.forceAvoidExplosionTimer = ticks;
+		System.out.println("[LMR-REMOTE] 🚨 收到警报信号！防爆遥控器已被按下，设定逃亡时间: " + ticks + " Tick");
 	}
 
 	/**
@@ -163,6 +163,7 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 	public boolean isForcedToAvoidExplosion() {
 		return this.forceAvoidExplosionTimer > 0;
 	}
+
 
 
 	// 定数はStaticsへ移動
@@ -2900,9 +2901,15 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 
 	@Override
 	public void onUpdate() {
+				// 更新强制躲避计时器
 		if (this.forceAvoidExplosionTimer > 0) {
-    this.forceAvoidExplosionTimer--;
-        }
+			this.forceAvoidExplosionTimer--;
+			// 每半秒（10 Tick）打印一次，确认她在这个状态里
+			if (this.forceAvoidExplosionTimer % 10 == 0) {
+				System.out.println("[LMR-REMOTE]  强行躲避状态持续中... 剩余Tick: " + this.forceAvoidExplosionTimer);
+			}
+		}
+
 		int litemuse = 0;
 //		resetNavigator();
 		
