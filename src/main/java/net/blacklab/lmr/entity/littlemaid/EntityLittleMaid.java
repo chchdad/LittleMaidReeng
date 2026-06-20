@@ -144,6 +144,26 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 public class EntityLittleMaid extends EntityTameable implements IMultiModelEntity, IGuiTextureSelect {
+	// ==========================================
+	// 强制躲避爆炸物接口
+	// ==========================================
+	protected int forceAvoidExplosionTimer = 0;
+
+	/**
+	 * 强制女仆将周围环境视为爆炸物，进入逃跑模式
+	 * @param ticks 强制逃跑的持续时间（Tick）
+	 */
+	public void setForceAvoidExplosion(int ticks) {
+		this.forceAvoidExplosionTimer = ticks;
+	}
+
+	/**
+	 * 供躲避爆炸物的底层逻辑读取：是否被强行劫持为躲避状态
+	 */
+	public boolean isForcedToAvoidExplosion() {
+		return this.forceAvoidExplosionTimer > 0;
+	}
+
 
 	// 定数はStaticsへ移動
 //	protected static final UUID maidUUID = UUID.nameUUIDFromBytes("lmm.littleMaidMob".getBytes());
@@ -2880,6 +2900,9 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 
 	@Override
 	public void onUpdate() {
+		if (this.forceAvoidExplosionTimer > 0) {
+    this.forceAvoidExplosionTimer--;
+        }
 		int litemuse = 0;
 //		resetNavigator();
 		
