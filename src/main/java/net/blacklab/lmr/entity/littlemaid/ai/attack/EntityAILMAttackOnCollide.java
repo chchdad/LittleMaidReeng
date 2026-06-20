@@ -11,12 +11,9 @@ import net.minecraft.entity.ai.EntityAIBase;
 import net.minecraft.pathfinding.Path;
 import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.DamageSource;
-import net.minecraft.enchantment.EnchantmentHelper;
-import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (引入超详细伤害数值日志 + 强制破除无敌帧)
+ * メイドさんの直接攻撃系処理 (回归原版打击判定 + 纯物理防壁咚滑步风筝)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -75,22 +72,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	private int getWeaponCooldown() {
 		float attackSpeed = 4.0F; 
-		net.minecraft.entity.ai.attributes.IAttributeInstance speedAttr = theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED);
+		net.minecraft.entity.ai.attributes.IAttributeInstance speedAttr = theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_SPEED);
 		if (speedAttr != null) {
 			attackSpeed = (float) speedAttr.getAttributeValue();
 		}
 		return (int)(20.0F / Math.max(0.1F, attackSpeed));
-	}
-
-	private void fleeLikeFromCreeper(EntityLivingBase threat) {
-		if (theMaid.getNavigator().noPath() || logSpamLimiter % 5 == 0) {
-			net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
-				theMaid, 16, 7, new net.minecraft.util.math.Vec3d(threat.posX, threat.posY, threat.posZ)
-			);
-			if (safePos != null) {
-				theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.35F); 
-			}
-		}
 	}
 
 	// 🌟 全局记忆同步锁
@@ -300,10 +286,28 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			boolean tooCloseToThreat = isChasedByMonster && (distSq < 7.5D);
 
 			if (this.actionDelayTimer > 0 || tooCloseToThreat) {
-				fleeLikeFromCreeper(targetToProcess);
+				double dX = theMaid.posX - targetToProcess.posX;
+				double dZ = theMaid.posZ - targetToProcess.posZ;
+				double distance = Math.sqrt(dX * dX + dZ * dZ);
+
+				if (distance > 0.0001D) {
+					theMaid.getNavigator().clearPath();
+					
+					float targetYaw = (float)(Math.atan2(targetToProcess.posZ - theMaid.posZ, targetToProcess.posX - theMaid.posX) * 180.0D / Math.PI) - 90.0F;
+					theMaid.rotationYaw = targetYaw;
+					theMaid.rotationYawHead = targetYaw;
+					theMaid.renderYawOffset = targetYaw;
+
+					theMaid.motionX = (dX / distance) * 0.28D;
+					theMaid.motionZ = (dZ / distance) * 0.28D;
+
+					if (theMaid.collidedHorizontally && theMaid.onGround) {
+						theMaid.getJumpHelper().setJumping();
+					}
+				}
 				if (logSpamLimiter % 10 == 0) {
-					if (tooCloseToThreat) System.err.println("[LMR-SPEED-DEBUG] 🚨 怪物贴脸！紧急躲避！");
-					else System.err.println("[LMR-SPEED-DEBUG] ⏱️ 武器冷却中！拉扯躲避！");
+					if (tooCloseToThreat) System.err.println("[LMR-SPEED-DEBUG] 🚨 怪物贴脸！紧急滑步避险！");
+					else System.err.println("[LMR-SPEED-DEBUG] ⏱️ 武器冷却中！持续后撤！");
 				}
 			} 
 			else {
@@ -320,50 +324,47 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.rotationYawHead = targetYaw;
 					theMaid.renderYawOffset = targetYaw;
 
-					if (Math.abs(yawDiff) <= 55.0F) {
-						
-						// =========================================================
-						// 🗡️ 绝境专属打击：详细伤害检测仪 + 强制破除无敌帧
-						// =========================================================
-						
-						// 1. 获取面板基础攻击力
-						float baseDmg = (float)theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
-						
-						// 2. 算上附魔伤害（锋利、亡灵杀手等）
-						float enchantDmg = 0.0F;
-						if (!theMaid.getHeldItemMainhand().isEmpty()) {
-							enchantDmg = EnchantmentHelper.getModifierForCreature(theMaid.getHeldItemMainhand(), targetToProcess.getCreatureAttribute());
-						}
-						float totalDmg = baseDmg + enchantDmg;
-						
-						// 🌟强制破除无敌帧：防止原版吞伤害！
-						targetToProcess.hurtResistantTime = 0;
+					// 🌟 引入正规的面部朝向和拔刀就绪判定！
+					double vdx = -Math.sin(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
+					double vdz = Math.cos(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
+					double ld = (tdx * vdx + tdz * vdz) / (Math.sqrt(tdx * tdx + tdz * tdz) * Math.sqrt(vdx * vdx + vdz * vdz));
+					
+					boolean canSlashNow = (ld >= -0.35D) && theMaid.getSwingStatusDominant().canAttack();
 
-						// 3. 构建最标准的原版“实体物理攻击”伤害源
-						DamageSource desperateStrike = DamageSource.causeMobDamage(theMaid);
+					if (canSlashNow) {
 						
-						// 4. 直接把纯数值伤害打给怪物，并捕获系统反馈
-						boolean isHit = targetToProcess.attackEntityFrom(desperateStrike, totalDmg);
+						// 🌟 完全调用模组底层的原生判定体系
+						boolean isHit = theMaid.attackEntityAsMob(targetToProcess);
 						
-						// 🌟 如果命中了，强行给一个小的物理击退，模拟真实打击感
-						if (isHit) {
-							targetToProcess.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
-						}
+						if (isHit && theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
+							worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
+							if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, targetToProcess.posX, targetToProcess.posY + (targetToProcess.height / 2.0F), targetToProcess.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+							
+							java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(EntityLivingBase.class, theMaid.getEntityBoundingBox().grow(2.0D, 1.5D, 2.0D));
+							float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+							float sweepRatio = net.minecraft.enchantment.EnchantmentHelper.getSweepingDamageRatio(theMaid);
+							float sweepDamage = 1.0F + (sweepRatio * baseAttackDamage);
+							Entity owner = theMaid.getMaidMasterEntity();
+							double yawRad = theMaid.renderYawOffset * Math.PI / 180.0D;
+							double lookX = -Math.sin(yawRad); double lookZ = Math.cos(yawRad);
 
-						// 5. 手动扣除武器 1 点耐久，保持平衡
-						if (!theMaid.getHeldItemMainhand().isEmpty()) {
-							theMaid.getHeldItemMainhand().damageItem(1, theMaid);
-						}
-
-						// 6. 播放动画与音效
-						theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
-						worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
-						if (worldObj instanceof net.minecraft.world.WorldServer) {
-							((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, targetToProcess.posX, targetToProcess.posY + (targetToProcess.height / 2.0F), targetToProcess.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+							for (EntityLivingBase aoeTarget : list) {
+								if (aoeTarget == theMaid || aoeTarget == entityTarget || aoeTarget == owner || theMaid.isOnSameTeam(aoeTarget)) continue;
+								if (theMaid.getDistanceSq(aoeTarget) >= 16.0D) continue;
+								double dx = aoeTarget.posX - theMaid.posX; double dz = aoeTarget.posZ - theMaid.posZ; double distanceXY = Math.sqrt(dx * dx + dz * dz);
+								if (distanceXY > 0.0001D) {
+									double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
+									if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
+										aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+										aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
+									}
+								}
+							}
 						}
 						
 						this.actionDelayTimer = getWeaponCooldown() + 15; 
-						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 绝境独立打击! 基础:" + baseDmg + " 附魔:" + enchantDmg + " 总伤:" + totalDmg + " 命中:" + isHit);
+						theMaid.getNavigator().clearPath();
+						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 绝境调用原版打击完成！系统判定命中: " + isHit);
 					}
 				} else {
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
