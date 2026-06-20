@@ -13,7 +13,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (完美接口劫持：拉响警报并让出控制权)
+ * メイドさんの直接攻撃系処理 (带有全面移速排查日志的调试版)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -79,13 +79,19 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		return (int)(20.0F / Math.max(0.1F, attackSpeed));
 	}
 
+	private void fleeLikeFromCreeper(EntityLivingBase threat) {
+		if (theMaid.getNavigator().noPath() || logSpamLimiter % 5 == 0) {
+			net.minecraft.util.math.Vec3d safePos = net.minecraft.entity.ai.RandomPositionGenerator.findRandomTargetBlockAwayFrom(
+				theMaid, 16, 7, new net.minecraft.util.math.Vec3d(threat.posX, threat.posY, threat.posZ)
+			);
+			if (safePos != null) {
+				theMaid.getNavigator().tryMoveToXYZ(safePos.x, safePos.y, safePos.z, moveSpeed * 1.35F); 
+			}
+		}
+	}
+
 	@Override
 	public boolean shouldExecute() {
-		// 🌟 核心拦截：如果正处于躲避爆炸警报期间，绝对不抢夺身体控制权！
-		if (theMaid.isForcedToAvoidExplosion()) {
-			return false;
-		}
-
 		EntityLivingBase lentity = theMaid.getAttackTarget();
 		
 		if (this.isKitingPhase && this.threatTarget != null && this.threatTarget.isEntityAlive()) {
@@ -127,11 +133,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public boolean shouldContinueExecuting() {
-		// 🌟 核心拦截：一旦拉响警报，立马返回 false 让出控制权！
-		if (theMaid.isForcedToAvoidExplosion()) {
-			return false;
-		}
-
 		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || retreatTimer > 0 || isDashBuff || isJumpSlashing || isKitingPhase) {
 			EntityLivingBase targetToCheck = isKitingPhase ? threatTarget : entityTarget;
 			if (targetToCheck != null && targetToCheck.isEntityAlive() && !targetToCheck.isDead) {
@@ -183,8 +184,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		isJumpSlashing = false;
 		theMaid.setNoGravity(false);
 		
-		// 🌟 注意：如果是因为逃跑警报触发的 reset，我们绝对不能清空黑名单！
-		if (isKitingPhase && !theMaid.isForcedToAvoidExplosion()) {
+		if (isKitingPhase) {
 			isKitingPhase = false;
 			threatTarget = null;
 		}
@@ -211,11 +211,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			theMaid.getLookHelper().setLookPositionWithEntity(targetToProcess, 30F, 30F);
 		}
 
-		// =======================================================
-		// 0. 绝境雷达进入与退出 (10% - 20% 阈值)
-		// =======================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
-		if (hpPct <= 0.10F) {
+		if (hpPct <= 0.25F) { 
 			if (!this.isKitingPhase) {
 				this.isKitingPhase = true;
 				this.threatTarget = entityTarget; 
@@ -233,7 +230,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				this.rescueBerserkTimer = 0;
 				theMaid.getNavigator().clearPath();
 			}
-		} else if (hpPct >= 0.20F) {
+		} else if (hpPct >= 0.40F) { 
 			if (this.isKitingPhase) {
 				this.isKitingPhase = false;
 				if (this.threatTarget != null && this.threatTarget.isEntityAlive()) {
@@ -243,11 +240,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		// =======================================================
-		// 🌟 1. 绝境专属：触发远程警报，劫持底层 AI
-		// =======================================================
 		if (this.isKitingPhase) {
-			
 			if (this.actionDelayTimer > 0) this.actionDelayTimer--;
 
 			theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 10, 4, false, false));
@@ -267,9 +260,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 				theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + theMaid.getRNG().nextFloat() * 0.4F);
 				
-				// 被打后强制按遥控器：强制躲避 40 Tick
-				theMaid.setForceAvoidExplosion(40);
-				this.actionDelayTimer = getWeaponCooldown(); 
+				this.actionDelayTimer = getWeaponCooldown() + 20; 
 				return; 
 			}
 
@@ -278,63 +269,43 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 
 			double distSq = theMaid.getDistanceSq(targetToProcess);
-			
 			boolean isChasedByMonster = (targetToProcess.getRevengeTarget() == theMaid);
 			if (targetToProcess instanceof EntityLiving) {
 				isChasedByMonster = isChasedByMonster || (((EntityLiving)targetToProcess).getAttackTarget() == theMaid);
 			}
 
-			// 🌟 核心判断：距离小于4格 或 武器在冷却
-			boolean tooCloseToThreat = isChasedByMonster && (distSq < 16.0D);
+			boolean tooCloseToThreat = isChasedByMonster && (distSq < 7.5D);
 
 			if (this.actionDelayTimer > 0 || tooCloseToThreat) {
-				// 🚨 按下遥控器！通知底层 AI 接管逃命，并直接中断当前帧逻辑！
-				theMaid.setForceAvoidExplosion(40);
-				if (logSpamLimiter % 10 == 0) System.out.println("[LMR-KITE] 距离过近或CD中，拉响防爆警报交出控制权！");
-				return; 
+				fleeLikeFromCreeper(targetToProcess);
 			} 
 			else {
-				// 💚 安全期：可以反打，或者回防主人
-				EntityLivingBase master = (EntityLivingBase) theMaid.getMaidMasterEntity();
-				boolean needsToReturnToMaster = false;
-				if (master != null && theMaid.getDistanceSq(master) > 100.0D) { 
-					needsToReturnToMaster = true; 
-				}
+				double survivalMaxReach = 3.0D + (double)targetToProcess.width / 2.0D;
+				double atkRangeSq = survivalMaxReach * survivalMaxReach;
+				
+				if (distSq <= atkRangeSq) {
+					double tdx = targetToProcess.posX - theMaid.posX;
+					double tdz = targetToProcess.posZ - theMaid.posZ;
+					float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
+					float yawDiff = MathHelper.wrapDegrees(theMaid.rotationYawHead - targetYaw);
+					
+					theMaid.rotationYaw = targetYaw;
+					theMaid.rotationYawHead = targetYaw;
+					theMaid.renderYawOffset = targetYaw;
 
-				if (needsToReturnToMaster) {
-					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
-						theMaid.getNavigator().tryMoveToEntityLiving(master, moveSpeed * 1.15F);
+					if (Math.abs(yawDiff) <= 55.0F) {
+						theMaid.attackEntityAsMob(targetToProcess);
+						theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+						
+						if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
+							worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
+							if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, targetToProcess.posX, targetToProcess.posY + (targetToProcess.height / 2.0F), targetToProcess.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+						}
+						this.actionDelayTimer = getWeaponCooldown() + 15; 
 					}
 				} else {
-					double survivalMaxReach = 3.0D + (double)targetToProcess.width / 2.0D;
-					double atkRangeSq = survivalMaxReach * survivalMaxReach;
-					
-					if (distSq <= atkRangeSq) {
-						double tdx = targetToProcess.posX - theMaid.posX;
-						double tdz = targetToProcess.posZ - theMaid.posZ;
-						float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
-						float yawDiff = MathHelper.wrapDegrees(theMaid.rotationYawHead - targetYaw);
-						
-						theMaid.rotationYaw = targetYaw;
-						theMaid.rotationYawHead = targetYaw;
-						theMaid.renderYawOffset = targetYaw;
-
-						if (Math.abs(yawDiff) <= 55.0F) {
-							theMaid.attackEntityAsMob(targetToProcess);
-							theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
-							
-							if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
-								worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
-								if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, targetToProcess.posX, targetToProcess.posY + (targetToProcess.height / 2.0F), targetToProcess.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
-							}
-							
-							// 🌟 砍完这一刀，进入 CD，下一帧自动拉响逃命警报
-							this.actionDelayTimer = getWeaponCooldown(); 
-						}
-					} else {
-						if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
-							theMaid.getNavigator().tryMoveToXYZ(targetToProcess.posX, targetToProcess.posY, targetToProcess.posZ, moveSpeed * 1.15F);
-						}
+					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
+						theMaid.getNavigator().tryMoveToXYZ(targetToProcess.posX, targetToProcess.posY, targetToProcess.posZ, moveSpeed * 1.15F);
 					}
 				}
 			}
@@ -342,7 +313,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 👇 以下为正常健康状态下的逻辑，绝境(拉扯)状态绝对进不来这里 👇
+		// 👇 正常健康状态下的逻辑 👇
 		// =======================================================
 
 		if (rescueBerserkCooldown > 0) rescueBerserkCooldown--;
@@ -363,6 +334,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					rescueBerserkTimer = 200; 
 					this.setMaidOverDrive(200); 
 					theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true); 
+					System.out.println("[LMR-SPEED-DEBUG]  触发护主狂暴！(设定200Tick)");
 				}
 			}
 		}
@@ -373,6 +345,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		// 🌟 终极跳劈状态机 
 		if (this.isJumpSlashing) {
+			if (this.jumpSlashTimer == 0) {
+				System.out.println("[LMR-SPEED-DEBUG]  触发跳劈！强制起飞");
+			}
 			this.jumpSlashTimer++;
 			theMaid.fallDistance = 0.0F;
 			
@@ -429,6 +404,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		// 🌟 突进(漩涡)状态保护锁
 		if (this.isDashBuff) {
+			if (this.dashTimer == 0) {
+				System.out.println("[LMR-SPEED-DEBUG]  触发漩涡突进！强制物理位移");
+			}
 			this.dashTimer++;
 			
 			if (this.dashTimer > 15 || (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) || theMaid.collidedHorizontally) {
@@ -443,9 +421,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				theMaid.renderYawOffset = theMaid.rotationYaw;
 
 				if (distance > 1.5D && distance < 10.0D) {
-					theMaid.motionX = (dX / distance) * 0.35D;
-					theMaid.motionZ = (dZ / distance) * 0.35D;
-					theMaid.velocityChanged = true;
+					theMaid.motionX = (dX / distance) * 0.25D; 
+					theMaid.motionZ = (dZ / distance) * 0.25D;
 					return; 
 				} 
 				else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D).intersects(entityTarget.getEntityBoundingBox())) {
@@ -454,7 +431,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					this.isDashBuff = false;
 					this.actionDelayTimer = getWeaponCooldown(); 
 					theMaid.motionX = 0.0D; theMaid.motionZ = 0.0D;
-					theMaid.velocityChanged = true;
+					theMaid.velocityChanged = true; 
 
 					if (entityTarget instanceof EntityLivingBase) {
 						((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
@@ -509,7 +486,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							theMaid.motionX = (dX / distance) * 0.35D; 
 							theMaid.motionZ = (dZ / distance) * 0.35D; 
 							theMaid.motionY = 0.0D; 
-							theMaid.velocityChanged = true;
+							theMaid.velocityChanged = true; 
 						}
 						pendingDash = true; 
 						actionDelayTimer = (int)(getWeaponCooldown() * 0.6F); 
@@ -521,6 +498,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						
 						this.isDashBuff = true;
 						this.dashTimer = 0; 
+						theMaid.velocityChanged = true; 
 					}
 				}
 				return; 
@@ -538,6 +516,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				else if (distToTarget < 36.0D) burstSpeed = moveSpeed * 1.15F; 
 				
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
+				
+				if (burstSpeed > moveSpeed && logSpamLimiter % 20 == 0) {
+					System.out.println("[LMR-SPEED-DEBUG]  常规寻路爆发加速: " + burstSpeed);
+				}
 
 				double dist = Math.sqrt(distToTarget);
 				if (this.actionDelayTimer <= 0 && dist >= 4.0D && dist <= 8.0D && !this.isDashBuff) {
@@ -619,6 +601,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					if (theMaid.getRNG().nextFloat() < triggerChance) {
 						this.actionDelayTimer = (int)(getWeaponCooldown() * 0.3F); 
 						this.pendingBackstep = true; 
+						System.out.println("[LMR-SPEED-DEBUG]  斩击后触发连招：后撤步准备");
 					}
 				} 
 			}
