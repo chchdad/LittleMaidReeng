@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (状态追踪日志 + 绝境专属独立物理打击结算)
+ * メイドさんの直接攻撃系処理 (引入超详细伤害数值日志 + 强制破除无敌帧)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -323,7 +323,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					if (Math.abs(yawDiff) <= 55.0F) {
 						
 						// =========================================================
-						// 🗡️ 绝境专属打击：独立计算伤害，正常算护甲，但无物理拉扯粘滞
+						// 🗡️ 绝境专属打击：详细伤害检测仪 + 强制破除无敌帧
 						// =========================================================
 						
 						// 1. 获取面板基础攻击力
@@ -336,12 +336,20 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						}
 						float totalDmg = baseDmg + enchantDmg;
 						
-						// 3. 构建最标准的原版“实体物理攻击”伤害源（绝不写 setDamageBypassesArmor，必须乖乖算护甲）
+						// 🌟强制破除无敌帧：防止原版吞伤害！
+						targetToProcess.hurtResistantTime = 0;
+
+						// 3. 构建最标准的原版“实体物理攻击”伤害源
 						DamageSource desperateStrike = DamageSource.causeMobDamage(theMaid);
 						
-						// 4. 直接把纯数值伤害打给怪物
-						targetToProcess.attackEntityFrom(desperateStrike, totalDmg);
+						// 4. 直接把纯数值伤害打给怪物，并捕获系统反馈
+						boolean isHit = targetToProcess.attackEntityFrom(desperateStrike, totalDmg);
 						
+						// 🌟 如果命中了，强行给一个小的物理击退，模拟真实打击感
+						if (isHit) {
+							targetToProcess.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+						}
+
 						// 5. 手动扣除武器 1 点耐久，保持平衡
 						if (!theMaid.getHeldItemMainhand().isEmpty()) {
 							theMaid.getHeldItemMainhand().damageItem(1, theMaid);
@@ -355,7 +363,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						}
 						
 						this.actionDelayTimer = getWeaponCooldown() + 15; 
-						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 绝境独立打击完成！正常计算护甲！");
+						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 绝境独立打击! 基础:" + baseDmg + " 附魔:" + enchantDmg + " 总伤:" + totalDmg + " 命中:" + isHit);
 					}
 				} else {
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
