@@ -13,7 +13,7 @@ import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * メイドさんの直接攻撃系処理 (移除回血保持绝境测试 + 强行红字输出日志 + 完美苦力怕拉扯)
+ * メイドさんの直接攻撃系処理 (保留原版寻路避险 + 状态认知日志 + 失忆同步修复)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -90,6 +90,39 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 	}
 
+	// 🌟 全局记忆同步锁：解决脱战后的“失忆”问题
+	private void syncKitingState(EntityLivingBase target) {
+		if (target == null) return;
+		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
+		
+		if (hpPct <= 0.25F) { 
+			if (!this.isKitingPhase) {
+				this.isKitingPhase = true;
+				this.isDashBuff = false;
+				this.pendingDash = false;
+				this.pendingBackstep = false;
+				if (this.isJumpSlashing) {
+					this.isJumpSlashing = false;
+					theMaid.setNoGravity(false);
+				}
+				this.setMaidOverDrive(0);
+				this.rescueBerserkTimer = 0;
+				theMaid.getNavigator().clearPath();
+			}
+			this.threatTarget = target; 
+			theMaid.setAttackTarget(null);    
+			theMaid.setRevengeTarget(null);
+		} else if (hpPct >= 0.40F) { 
+			if (this.isKitingPhase) {
+				this.isKitingPhase = false;
+				if (this.threatTarget != null && this.threatTarget.isEntityAlive()) {
+					theMaid.setAttackTarget(this.threatTarget);
+				}
+				this.threatTarget = null;
+			}
+		}
+	}
+
 	@Override
 	public boolean shouldExecute() {
 		EntityLivingBase lentity = theMaid.getAttackTarget();
@@ -100,15 +133,24 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		if (!fEnable || theMaid.isMaidWait() || lentity == null) return false;
 		
+		// 强制同步当前认知状态，防止以为自己满血
+		syncKitingState(lentity);
 		entityTarget = lentity;
-		pathToTarget = theMaid.getNavigator().getPathToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ);
+		
+		// 如果认知到自己是绝境，绝对不生成正向冲锋路径！
+		if (!this.isKitingPhase) {
+			pathToTarget = theMaid.getNavigator().getPathToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ);
+		} else {
+			pathToTarget = null; 
+		}
+		
 		attackRange = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 		attackRange *= attackRange;
 
 		if (theMaid.isFreedom() && !theMaid.isWithinHomeDistanceFromPosition(entityTarget.getPosition())) {
 			return false;
 		}
-		if ((pathToTarget != null) || (theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ) <= attackRange)) {
+		if (this.isKitingPhase || (pathToTarget != null) || (theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ) <= attackRange)) {
 			return true;
 		}
 		
@@ -122,10 +164,20 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		EntityLivingBase lentity = this.isKitingPhase ? this.threatTarget : theMaid.getAttackTarget();
 		if(lentity != null && !lentity.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
+			
+			// 🌟 新增：心理状态与认知监控日志
+			float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
+			String stateStr = "【🟢常规战士】";
+			if (this.isKitingPhase) stateStr = "【🚨绝境求生】";
+			else if (theMaid.isBloodsuck()) stateStr = "【💢护主狂暴】";
+			System.err.println("[LMR-STATE-DEBUG] 👁️ 锁定新目标: " + lentity.getName() + " | 当前认知状态: " + stateStr + " | 真实血量: " + String.format("%.1f", hpPct*100) + "%");
 		}
 		
-		if (!this.isKitingPhase) {
+		// 只有常规模式才允许在起步时向目标冲锋
+		if (!this.isKitingPhase && pathToTarget != null) {
 			theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
+		} else {
+			theMaid.getNavigator().clearPath();
 		}
 		rerouteTimer = 0;
 		theMaid.maidAvatar.stopActiveHand();
@@ -184,8 +236,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		isJumpSlashing = false;
 		theMaid.setNoGravity(false);
 		
+		// 脱战时仅清空黑名单目标，绝对不能强制洗掉 isKitingPhase 的残血记忆！
 		if (isKitingPhase) {
-			isKitingPhase = false;
 			threatTarget = null;
 		}
 
@@ -210,40 +262,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (!this.isKitingPhase) {
 			theMaid.getLookHelper().setLookPositionWithEntity(targetToProcess, 30F, 30F);
 		}
-
-		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
-		if (hpPct <= 0.25F) { 
-			if (!this.isKitingPhase) {
-				this.isKitingPhase = true;
-				this.threatTarget = entityTarget; 
-				theMaid.setAttackTarget(null);    
-				theMaid.setRevengeTarget(null);
-
-				this.isDashBuff = false;
-				this.pendingDash = false;
-				this.pendingBackstep = false;
-				if (this.isJumpSlashing) {
-					this.isJumpSlashing = false;
-					theMaid.setNoGravity(false);
-				}
-				this.setMaidOverDrive(0);
-				this.rescueBerserkTimer = 0;
-				theMaid.getNavigator().clearPath();
-			}
-		} else if (hpPct >= 0.40F) { 
-			if (this.isKitingPhase) {
-				this.isKitingPhase = false;
-				if (this.threatTarget != null && this.threatTarget.isEntityAlive()) {
-					theMaid.setAttackTarget(this.threatTarget);
-				}
-				this.threatTarget = null;
-			}
-		}
+		
+		// 每一帧都校准状态，确保绝对不发生认知错乱
+		syncKitingState(targetToProcess);
 
 		if (this.isKitingPhase) {
 			if (this.actionDelayTimer > 0) this.actionDelayTimer--;
 
-			// 只保留减伤兜底，移除回血
 			theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 10, 4, false, false));
 
 			if (theMaid.hurtTime == 10) {
