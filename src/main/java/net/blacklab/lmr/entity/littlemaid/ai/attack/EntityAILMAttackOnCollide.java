@@ -11,9 +11,12 @@ import net.minecraft.entity.ai.EntityAIBase;
 import net.minecraft.pathfinding.Path;
 import net.minecraft.world.World;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.DamageSource;
+import net.minecraft.enchantment.EnchantmentHelper;
+import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (保留原版寻路避险 + 状态认知日志 + 失忆同步修复)
+ * メイドさんの直接攻撃系処理 (状态追踪日志 + 绝境专属独立物理打击结算)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -72,7 +75,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	private int getWeaponCooldown() {
 		float attackSpeed = 4.0F; 
-		net.minecraft.entity.ai.attributes.IAttributeInstance speedAttr = theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_SPEED);
+		net.minecraft.entity.ai.attributes.IAttributeInstance speedAttr = theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED);
 		if (speedAttr != null) {
 			attackSpeed = (float) speedAttr.getAttributeValue();
 		}
@@ -90,7 +93,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 	}
 
-	// 🌟 全局记忆同步锁：解决脱战后的“失忆”问题
+	// 🌟 全局记忆同步锁
 	private void syncKitingState(EntityLivingBase target) {
 		if (target == null) return;
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
@@ -133,11 +136,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 		if (!fEnable || theMaid.isMaidWait() || lentity == null) return false;
 		
-		// 强制同步当前认知状态，防止以为自己满血
 		syncKitingState(lentity);
 		entityTarget = lentity;
 		
-		// 如果认知到自己是绝境，绝对不生成正向冲锋路径！
 		if (!this.isKitingPhase) {
 			pathToTarget = theMaid.getNavigator().getPathToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ);
 		} else {
@@ -165,15 +166,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if(lentity != null && !lentity.isDead){
 			theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 			
-			// 🌟 新增：心理状态与认知监控日志
 			float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 			String stateStr = "【🟢常规战士】";
 			if (this.isKitingPhase) stateStr = "【🚨绝境求生】";
 			else if (theMaid.isBloodsuck()) stateStr = "【💢护主狂暴】";
-			System.err.println("[LMR-STATE-DEBUG] 👁️ 锁定新目标: " + lentity.getName() + " | 当前认知状态: " + stateStr + " | 真实血量: " + String.format("%.1f", hpPct*100) + "%");
+			System.err.println("[LMR-STATE-DEBUG] 👁️ 锁定新目标: " + lentity.getName() + " | 认知状态: " + stateStr + " | 血量: " + String.format("%.1f", hpPct*100) + "%");
 		}
 		
-		// 只有常规模式才允许在起步时向目标冲锋
 		if (!this.isKitingPhase && pathToTarget != null) {
 			theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
 		} else {
@@ -236,7 +235,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		isJumpSlashing = false;
 		theMaid.setNoGravity(false);
 		
-		// 脱战时仅清空黑名单目标，绝对不能强制洗掉 isKitingPhase 的残血记忆！
 		if (isKitingPhase) {
 			threatTarget = null;
 		}
@@ -263,7 +261,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			theMaid.getLookHelper().setLookPositionWithEntity(targetToProcess, 30F, 30F);
 		}
 		
-		// 每一帧都校准状态，确保绝对不发生认知错乱
 		syncKitingState(targetToProcess);
 
 		if (this.isKitingPhase) {
@@ -324,15 +321,41 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.renderYawOffset = targetYaw;
 
 					if (Math.abs(yawDiff) <= 55.0F) {
-						theMaid.attackEntityAsMob(targetToProcess);
-						theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
 						
-						if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
-							worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
-							if (worldObj instanceof net.minecraft.world.WorldServer) ((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, targetToProcess.posX, targetToProcess.posY + (targetToProcess.height / 2.0F), targetToProcess.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+						// =========================================================
+						// 🗡️ 绝境专属打击：独立计算伤害，正常算护甲，但无物理拉扯粘滞
+						// =========================================================
+						
+						// 1. 获取面板基础攻击力
+						float baseDmg = (float)theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+						
+						// 2. 算上附魔伤害（锋利、亡灵杀手等）
+						float enchantDmg = 0.0F;
+						if (!theMaid.getHeldItemMainhand().isEmpty()) {
+							enchantDmg = EnchantmentHelper.getModifierForCreature(theMaid.getHeldItemMainhand(), targetToProcess.getCreatureAttribute());
 						}
+						float totalDmg = baseDmg + enchantDmg;
+						
+						// 3. 构建最标准的原版“实体物理攻击”伤害源（绝不写 setDamageBypassesArmor，必须乖乖算护甲）
+						DamageSource desperateStrike = DamageSource.causeMobDamage(theMaid);
+						
+						// 4. 直接把纯数值伤害打给怪物
+						targetToProcess.attackEntityFrom(desperateStrike, totalDmg);
+						
+						// 5. 手动扣除武器 1 点耐久，保持平衡
+						if (!theMaid.getHeldItemMainhand().isEmpty()) {
+							theMaid.getHeldItemMainhand().damageItem(1, theMaid);
+						}
+
+						// 6. 播放动画与音效
+						theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+						worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, theMaid.getSoundCategory(), 1.0F, 1.0F);
+						if (worldObj instanceof net.minecraft.world.WorldServer) {
+							((net.minecraft.world.WorldServer)worldObj).spawnParticle(net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, targetToProcess.posX, targetToProcess.posY + (targetToProcess.height / 2.0F), targetToProcess.posZ, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+						}
+						
 						this.actionDelayTimer = getWeaponCooldown() + 15; 
-						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 极限距离刺杀完成！开始后撤拉扯！");
+						System.err.println("[LMR-SPEED-DEBUG] ⚔️ 绝境独立打击完成！正常计算护甲！");
 					}
 				} else {
 					if (theMaid.getNavigator().noPath() || logSpamLimiter % 10 == 0) {
