@@ -90,9 +90,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 
 	@Override
 	public boolean shouldExecute() {
+		// 互斥黑名单：只要主手拿的不是剑，剑士立刻切断连接
+		if (theMaid.getHeldItemMainhand().isEmpty() || !(theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword)) {
+			return false;
+		}
+
 		EntityLivingBase lentity = theMaid.getAttackTarget();
 		
-		// 如果被打了但没目标，强行锁定打她的人！
+		// 强制仇恨反击锁。如果被打了但没目标，强行锁定打她的人！
 		if (lentity == null && theMaid.getRevengeTarget() != null && theMaid.getRevengeTarget().isEntityAlive()) {
 			theMaid.setAttackTarget(theMaid.getRevengeTarget());
 			lentity = theMaid.getAttackTarget();
@@ -117,6 +122,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.setRevengeTarget(null);
 		return false;
 	}
+
 
 	@Override
 	public void startExecuting() {
