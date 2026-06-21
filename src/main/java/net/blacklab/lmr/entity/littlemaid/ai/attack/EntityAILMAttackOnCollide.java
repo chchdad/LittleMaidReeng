@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (动态血线完整版 + 原味腾空暴击与动量归零 + 纯逻辑护盾)
+ * メイドさんの直接攻撃系処理 (动态血线完整版 + 原味腾空暴击与动量归零 + 纯逻辑护盾 + 定制拔刀音效)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -155,7 +155,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			return false;
 		}
 
-		// 🌟 补回可达性判定 (防止隔墙卡死)
 		if (!MaidHelper.isTargetReachable(this.theMaid, lentity, 0.0D)) {
 			return false;
 		}
@@ -198,7 +197,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 		
 		// =========================================================
-		// 🩸 动态血线阶梯状态机 (包含详细Log日志)
+		// 🩸 动态血线阶梯状态机
 		// =========================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 
@@ -307,7 +306,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		// 吸血与狂暴状态判定 (综合了动态血线与救主机制)
 		boolean isOwnerBerserk = this.isDynamicBerserk || (this.rescueBerserkTimer > 0);
 		theMaid.setBloodsuck(isOwnerBerserk); 
 		
@@ -344,7 +342,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					this.isDashBuff = false;
 					this.actionDelayTimer = getWeaponCooldown();
 					
-					// 🌟 补回的核心：彻底的动量归零，制造完美的卡肉感！
+					// 彻底的动量归零，制造完美的卡肉感！
 					theMaid.motionX = 0.0D;
 					theMaid.motionY = 0.0D; 
 					theMaid.motionZ = 0.0D;
@@ -440,7 +438,17 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					if (pendingBackstep) {
 						pendingBackstep = false; 
 						System.err.println("[LMR-STATE-DEBUG] 💨 招架结束，后撤拉开距离！");
-						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_STEP, 0.8F, 1.2F);
+						
+						// 🌟 音效定制：有护甲则皮甲摩擦声，无护甲则脚步声
+						boolean hasArmor = false;
+						for (net.minecraft.item.ItemStack armorStack : theMaid.getArmorInventoryList()) {
+							if (armorStack != null && !armorStack.isEmpty()) { hasArmor = true; break; }
+						}
+						if (hasArmor) {
+							theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_ARMOR_EQUIP_LEATHER, 0.8F, 1.2F);
+						} else {
+							theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_STEP, 0.8F, 1.2F);
+						}
 						
 						double dX = theMaid.posX - entityTarget.posX;
 						double dZ = theMaid.posZ - entityTarget.posZ;
@@ -459,7 +467,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					else if (pendingDash) {
 						pendingDash = false;
 						System.err.println("[LMR-STATE-DEBUG] 🚀 燕返出膛！绝境突刺发动 (附带腾空)！");
-						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_STEP, 1.0F, 0.8F);
+						
+						// 🌟 音效定制：拔刀横扫声 + 战吼
+						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.0F, 1.0F);
+						theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 						
 						this.isGuard = false;
 						theMaid.maidAvatar.stopActiveHand(); 
@@ -472,7 +483,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						if (distance >= 0.0001D) {
 							theMaid.motionX = (dX / distance) * 1.2D; 
 							theMaid.motionZ = (dZ / distance) * 1.2D;
-							// 🌟 原版的灵魂腾空！导致原版将其识别为坠落暴击的核心！
 							theMaid.motionY = 0.2D;  
 							theMaid.velocityChanged = true;
 						}
@@ -540,7 +550,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						this.setMaidOverDrive(100); 
 					}
 					
-					// 只有在地面上才触发横扫，与腾空暴击完美错开！
 					if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
 						worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, 
 							net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 
@@ -595,9 +604,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					
 					this.actionDelayTimer = getWeaponCooldown();
 
-					// 🌟 核心：普通状态才会格挡，若有狂暴许可，触发率飙升
 					if (!isOwnerBerserk) {
-						if (theMaid.getRNG().nextFloat() < 0.25F || (this.hasBerserkPerm && theMaid.getRNG().nextFloat() < 0.50F)) {
+						float triggerChance = this.isDynamicBerserk ? 0.50F : 0.25F;
+						if (theMaid.getRNG().nextFloat() < triggerChance) {
 							this.actionDelayTimer = (int)(getWeaponCooldown() * 0.3F); 
 							this.pendingBackstep = true; 
 							System.err.println("[LMR-STATE-DEBUG] ⚠️ 平A命中！进入格挡连招前摇...");
@@ -607,7 +616,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			} 
 		}
 
-		// 更新帧血量记录，用于下一次抵消伤害计算
 		this.lastTickHealth = theMaid.getHealth();
 	} 
 
