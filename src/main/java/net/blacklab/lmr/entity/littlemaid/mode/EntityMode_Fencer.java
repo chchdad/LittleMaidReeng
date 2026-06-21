@@ -47,11 +47,16 @@ public class EntityMode_Fencer extends EntityModeBase {
 	
 	protected int dismountTimer = 0;
 
-	public EntityMode_Fencer(EntityLittleMaid pEntity) {
+		public EntityMode_Fencer(EntityLittleMaid pEntity) {
 		super(pEntity);
 		isAnytimeUpdate = true;
 		ticksCharge = new Counter(-20*30, CHARGE_COUNTER_MAX_VALUE, -20*30);
+		
+		// 在这里把狂战士塞进女仆的 AI 任务列表里！
+		// 优先级设为 2（紧跟在原版攻击 AI 的后面）
+		pEntity.tasks.addTask(2, new net.blacklab.lmr.entity.littlemaid.ai.attack.EntityAILMAttackBerserker(pEntity));
 	}
+
 
 	@Override
 	public int priority() {
