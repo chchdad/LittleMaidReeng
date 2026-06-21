@@ -13,7 +13,7 @@ import net.minecraft.pathfinding.Path;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * 狂战士独立 AI (专属动画修复版：普通攻击动画 + 幕后双伤结算)
+ * 狂战士独立 AI (首击不退 + 无视无敌帧 + 二段击飞版)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -26,10 +26,18 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	protected int rerouteTimer;
 	protected double attackRange;
 
+	// ==========================================
+	// 二连斩状态机核心变量
+	// ==========================================
 	protected int actionDelayTimer = 0; 
 	protected boolean pendingDash = false; 
 	protected boolean isDashBuff = false; 
 	protected float lastTickHealth = -1.0F;
+	
+	// 副手追击计时器与缓存伤害
+	protected boolean pendingOffhandStrike = false;
+	protected int comboDelayTimer = 0;
+	protected float storedOffhandDamage = 0.0F;
 
 	public EntityAILMAttackBerserker(EntityLittleMaid par1EntityLittleMaid) {
 		theMaid = par1EntityLittleMaid;
@@ -56,9 +64,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		boolean hasMainAxe = !mainHand.isEmpty() && mainHand.getItem() instanceof ItemAxe;
 		boolean hasOffAxe = !offHand.isEmpty() && offHand.getItem() instanceof ItemAxe;
 		
-		if (!(hasMainAxe && hasOffAxe)) {
-			return false;
-		}
+		if (!(hasMainAxe && hasOffAxe)) return false;
 
 		EntityLivingBase lentity = theMaid.getAttackTarget();
 		if (lentity == null && theMaid.getRevengeTarget() != null && theMaid.getRevengeTarget().isEntityAlive()) {
@@ -73,13 +79,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		attackRange = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 		attackRange *= attackRange;
 
-		if (theMaid.isFreedom() && !theMaid.isWithinHomeDistanceFromPosition(entityTarget.getPosition())) {
-			return false;
-		}
-		
-		if ((pathToTarget != null) || (theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ) <= attackRange)) {
-			return true;
-		}
+		if (theMaid.isFreedom() && !theMaid.isWithinHomeDistanceFromPosition(entityTarget.getPosition())) return false;
+		if ((pathToTarget != null) || (theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ) <= attackRange)) return true;
 		
 		theMaid.setAttackTarget(null);
 		theMaid.setRevengeTarget(null);
@@ -91,12 +92,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		if(entityTarget != null && !entityTarget.isDead){
 			theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true);
 		}
+		if (pathToTarget != null) theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
+		else theMaid.getNavigator().clearPath();
 		
-		if (pathToTarget != null) {
-			theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
-		} else {
-			theMaid.getNavigator().clearPath();
-		}
 		rerouteTimer = 0;
 		theMaid.stopActiveHand(); 
 		theMaid.maidAvatar.stopActiveHand();
@@ -105,17 +103,15 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 	@Override
 	public boolean shouldContinueExecuting() {
-		if (actionDelayTimer > 0 || pendingDash || isDashBuff) {
-			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) {
-				return true; 
-			}
+		// 连斩霸体锁
+		if (actionDelayTimer > 0 || pendingDash || isDashBuff || pendingOffhandStrike) {
+			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) return true; 
 		}
 
 		if (!theMaid.isFreedom() && theMaid.getMaidMasterEntity() instanceof EntityLivingBase) {
 			EntityLivingBase master = (EntityLivingBase) theMaid.getMaidMasterEntity();
 			boolean isMasterMoving = Math.abs(master.posX - master.prevPosX) > 0.02D || Math.abs(master.posZ - master.prevPosZ) > 0.02D;
 			double maxDistSq = isMasterMoving ? 225.0D : 729.0D; 
-			
 			if (theMaid.getDistanceSq(master) > maxDistSq) {
 				theMaid.setPositionAndUpdate(master.posX, master.posY, master.posZ);
 				theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_ENDERMEN_TELEPORT, 0.5F, 1.2F);
@@ -130,12 +126,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			return false;
 		}
 
-		if (!MaidHelper.isTargetReachable(this.theMaid, lentity, 0.0D)) {
-			return false;
-		}
-		if (!isReroute && theMaid.getNavigator().noPath()) {
-			return false;
-		}
+		if (!MaidHelper.isTargetReachable(this.theMaid, lentity, 0.0D)) return false;
+		if (!isReroute && theMaid.getNavigator().noPath()) return false;
 		return true;
 	}
 
@@ -151,6 +143,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		actionDelayTimer = 0;
 		pendingDash = false;
 		isDashBuff = false;
+		pendingOffhandStrike = false;
 	}
 
 	@Override
@@ -161,10 +154,56 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		}
 
 		if (this.lastTickHealth < 0) this.lastTickHealth = theMaid.getHealth();
+		
+		// =======================================================
+		// 0. 二连斩之【副手无情追击】
+		// =======================================================
+		if (pendingOffhandStrike) {
+			if (comboDelayTimer > 0) comboDelayTimer--;
+			
+			if (comboDelayTimer <= 0) {
+				pendingOffhandStrike = false;
+
+				// 强制调用系统原生副手挥动
+				theMaid.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
+
+				// 🌟 核心修改：清空怪物的无敌帧！
+				entityTarget.hurtResistantTime = 0;
+
+				System.err.println("[LMR-BERSERKER-DMG] ⚔️ 连斩第二段！副手狂劈，无视无敌帧追加真实伤害: " + this.storedOffhandDamage);
+				entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), this.storedOffhandDamage);
+				
+				ItemStack offItem = theMaid.getHeldItemOffhand();
+				if (!offItem.isEmpty()) offItem.damageItem(1, theMaid);
+
+				// 🌟 第二段强力击退
+				if (entityTarget instanceof EntityLivingBase) {
+					((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
+						(double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
+						(double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+					entityTarget.velocityChanged = true;
+				}
+
+				theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 0.8F);
+				if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
+					((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
+						net.minecraft.util.EnumParticleTypes.CRIT, 
+						entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
+						25, 0.4D, 0.4D, 0.4D, 0.2D
+					);
+				}
+
+				this.actionDelayTimer = getWeaponCooldown();
+				return;
+			}
+			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+			return; 
+		}
+
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		// 1. 突刺命中与完美伤害核算 (Dash Buff)
+		// 1. 突刺命中之【主手第一刀】
 		// =======================================================
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
@@ -187,12 +226,10 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				} 
 				else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D, 0.8D, 0.8D).intersects(entityTarget.getEntityBoundingBox())) {
 					
-					// 🌟 1. 计算主手总伤 (基础+附魔)
 					float mainBaseDmg = (float)theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
 					float mainEnchantDmg = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(theMaid.getHeldItemMainhand(), entityTarget.getCreatureAttribute());
 					float mainTotal = mainBaseDmg + mainEnchantDmg;
 
-					// 🌟 2. 计算副手总伤 (基础+附魔)
 					float offBaseDmg = 0.0F;
 					ItemStack offItem = theMaid.getHeldItemOffhand();
 					if (!offItem.isEmpty()) {
@@ -204,48 +241,42 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					float offEnchantDmg = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(offItem, entityTarget.getCreatureAttribute());
 					float offTotal = offBaseDmg + offEnchantDmg;
 
-					// 🌟 3. 强制使用“普通攻击”调用，触发女仆专属动画、音效、和主手伤害计算！
+					float rawTotal = mainTotal + offTotal;
+					float finalDamage = rawTotal * 1.5F;
+
+					// 🌟 核心修改：在攻击前记录怪物当前的动量
+					double prevMotionX = entityTarget.motionX;
+					double prevMotionY = entityTarget.motionY;
+					double prevMotionZ = entityTarget.motionZ;
+
+					// 触发原版攻击
 					boolean isHit = theMaid.attackEntityAsMob(entityTarget);
 
 					if (isHit) {
-						// 🌟 4. 如果命中了，幕后追加副手伤害 + 跳劈的额外50%总伤！
-						// 由于 attackEntityAsMob 已经造成了 mainTotal 的伤害，我们需要补上剩下的：
-						float extraDamage = offTotal + ((mainTotal + offTotal) * 0.5F);
-						
-						// 追加真实物理伤害
-						entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), extraDamage);
-						
-						// 手动扣除副手耐久
-						if (!offItem.isEmpty()) {
-							offItem.damageItem(1, theMaid);
-						}
+						// 🌟 核心修改：攻击完成后立刻把动量还给怪物，强行抹除原版击退！
+						entityTarget.motionX = prevMotionX;
+						entityTarget.motionY = prevMotionY;
+						entityTarget.motionZ = prevMotionZ;
+						entityTarget.velocityChanged = true;
 
-						// 击退与粒子特效
-						if (entityTarget instanceof EntityLivingBase) {
-							((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
-								(double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
-								(double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
-							entityTarget.velocityChanged = true;
-						}
+						this.storedOffhandDamage = finalDamage - mainTotal;
 
-						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
-						if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
-							((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
-								net.minecraft.util.EnumParticleTypes.CRIT, 
-								entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
-								25, 0.4D, 0.4D, 0.4D, 0.2D
-							);
-						}
+						System.err.println("[LMR-BERSERKER-DMG] 🪓🩸 双斧突刺一发命中 (已取消击退)！");
+						System.err.println("[LMR-BERSERKER-DMG] 📊 主手 -> 合计: " + mainTotal + " | 副手 -> 合计: " + offTotal);
+						System.err.println("[LMR-BERSERKER-DMG] 💥 1.5倍跳劈最终总伤: " + finalDamage);
+						System.err.println("[LMR-BERSERKER-DMG] ⏱️ 主手已斩下！0.25秒后无视无敌帧击飞...");
+
+						this.pendingOffhandStrike = true;
+						this.comboDelayTimer = 5;
+					} else {
+						this.actionDelayTimer = getWeaponCooldown();
 					}
 
 					this.isDashBuff = false;
-					this.actionDelayTimer = getWeaponCooldown();
-					
 					theMaid.motionX = 0.0D;
 					theMaid.motionY = 0.0D; 
 					theMaid.motionZ = 0.0D;
 					theMaid.velocityChanged = true;
-
 					this.lastTickHealth = theMaid.getHealth();
 					return; 
 				} else {
@@ -270,10 +301,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				
 				if (actionDelayTimer <= 0) {
 					pendingDash = false;
-					
 					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.0F, 1.0F);
 					theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true);
-					
 					theMaid.stopActiveHand(); 
 					theMaid.maidAvatar.stopActiveHand(); 
 					
@@ -287,7 +316,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 						theMaid.motionY = 0.2D;  
 						theMaid.velocityChanged = true;
 					}
-					
 					theMaid.hurtResistantTime = 20; 
 					this.isDashBuff = true; 
 				}
@@ -302,13 +330,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
 				rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
-				
 				double distToTarget = theMaid.getDistanceSq(entityTarget);
 				float burstSpeed = moveSpeed * 1.5F; 
-				if (distToTarget < 36.0D) {
-					burstSpeed = moveSpeed * 1.8F; 
-				}
-				
+				if (distToTarget < 36.0D) burstSpeed = moveSpeed * 1.8F; 
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
 			} else {
 				theMaid.setAttackTarget(null);
@@ -319,7 +343,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		// =======================================================
 		// 4. 斩击与测距判定
 		// =======================================================
-		if (this.actionDelayTimer <= 0 && !this.isDashBuff) {
+		if (this.actionDelayTimer <= 0 && !this.isDashBuff && !this.pendingOffhandStrike) {
 			double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
 			
 			if (currentDistSq >= 25.0D && currentDistSq <= 49.0D) {
@@ -348,7 +372,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 				if (canSlashNow) {
 					boolean isHit = theMaid.attackEntityAsMob(entityTarget); 
-					
 					if (isHit) {
 						if (!theMaid.onGround) {
 							theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
@@ -359,7 +382,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 									15, 0.3D, 0.3D, 0.3D, 0.2D
 								);
 							}
-							
 							float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
 							entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), baseAttackDamage * 0.5F);
 						} 
