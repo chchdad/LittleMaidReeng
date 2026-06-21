@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (动态血线 + 100%原味连招还原包含减伤/前摇 + 定制音效与锁血)
+ * メイドさんの直接攻撃系処理 (修复地上的箭误判 + 修复实体举盾视觉缺失 + 增加强制仇恨反击)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -91,6 +91,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	@Override
 	public boolean shouldExecute() {
 		EntityLivingBase lentity = theMaid.getAttackTarget();
+		
+		// 🌟 修复3：强制仇恨反击锁。如果被打了但没目标，强行锁定打她的人！
+		if (lentity == null && theMaid.getRevengeTarget() != null && theMaid.getRevengeTarget().isEntityAlive()) {
+			theMaid.setAttackTarget(theMaid.getRevengeTarget());
+			lentity = theMaid.getAttackTarget();
+		}
+
 		if (!fEnable || theMaid.isMaidWait() || lentity == null) return false;
 		
 		entityTarget = lentity;
@@ -124,6 +131,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			theMaid.getNavigator().clearPath();
 		}
 		rerouteTimer = 0;
+		theMaid.stopActiveHand(); 
 		theMaid.maidAvatar.stopActiveHand();
 		this.lastTickHealth = theMaid.getHealth(); 
 	}
@@ -175,6 +183,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		pendingBackstep = false;
 		pendingDash = false;
 		isDashBuff = false;
+		theMaid.stopActiveHand(); 
+		theMaid.maidAvatar.stopActiveHand();
 		
 		if (rescueBerserkTimer > 0) {
 			rescueBerserkTimer = 0;
@@ -243,6 +253,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (this.dodgeCooldown <= 0) {
 			java.util.List<Entity> projectiles = worldObj.getEntitiesWithinAABBExcludingEntity(theMaid, theMaid.getEntityBoundingBox().grow(6.0D, 2.0D, 6.0D));
 			for (Entity proj : projectiles) {
+				// 🌟 修复1：绝对无视插在地上的箭！
+				if (proj instanceof net.minecraft.entity.projectile.EntityArrow) {
+					if (((net.minecraft.entity.projectile.EntityArrow)proj).inGround) {
+						continue; 
+					}
+				}
+				
 				if (proj instanceof net.minecraft.entity.projectile.EntityArrow || 
 					proj instanceof net.minecraft.entity.projectile.EntityThrowable || 
 					proj instanceof net.minecraft.entity.projectile.EntityFireball) {
@@ -268,7 +285,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							}
 							
 							this.dodgeCooldown = 40 + theMaid.getRNG().nextInt(20); 
-							System.err.println("[LMR-STATE-DEBUG] 💨 侦测到远程攻击，战术侧滑闪避!");
+							System.err.println("[LMR-STATE-DEBUG] 💨 侦测到危险飞行物，战术侧滑闪避!");
 							break; 
 						}
 					}
@@ -372,13 +389,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 3. FSM 连招 (长蓄力减伤 -> 物理后撤 -> 拔刀突刺)
+		// 3. FSM 连招 (强制锁头 + 完美格挡锁血 + 物理后撤 -> 拔刀突刺)
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
 			
 			if (pendingBackstep || pendingDash) {
-				// 强制锁头，不露后背
+				// 强行掰回头与身体：绝对不露后背！
 				double forceLookX = entityTarget.posX - theMaid.posX;
 				double forceLookZ = entityTarget.posZ - theMaid.posZ;
 				float strictTargetYaw = (float)(Math.atan2(forceLookZ, forceLookX) * 180.0D / Math.PI) - 90.0F;
@@ -392,11 +409,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.motionY = -0.08D; 
 					
 					this.isGuard = true; 
+					// 🌟 修复2：真实赋予模型举盾动画！不光是Avatar，真身也要举盾！
+					if (!theMaid.isHandActive()) {
+						theMaid.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+					}
 					if (!theMaid.maidAvatar.isHandActive()) {
 						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 					}
 					
-					// 🌟 核心还原：原版蓄力减伤 (提供40%硬核减伤)
 					theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 5, 1, false, false));
 					
 					if (worldObj instanceof net.minecraft.world.WorldServer && logSpamLimiter % 2 == 0) {
@@ -412,12 +432,15 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				
 				if (pendingDash) {
 					this.isGuard = true;
+					if (!theMaid.isHandActive()) {
+						theMaid.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+					}
 					if (!theMaid.maidAvatar.isHandActive()) {
 						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 					}
 				}
 
-				// 🛡️ 物理硬核防御逻辑 (掉血瞬回 + 锁血)
+				// 🛡️ 物理硬核防御逻辑
 				if (this.isGuard) {
 					if (theMaid.hurtTime == 10 && this.lastTickHealth > theMaid.getHealth()) {
 						float damageTaken = this.lastTickHealth - theMaid.getHealth();
@@ -441,7 +464,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						pendingBackstep = false; 
 						System.err.println("[LMR-STATE-DEBUG] 💨 招架结束，后撤拉开距离！");
 						
-						// 音效定制
 						boolean hasArmor = false;
 						for (net.minecraft.item.ItemStack armorStack : theMaid.getArmorInventoryList()) {
 							if (armorStack != null && !armorStack.isEmpty()) { hasArmor = true; break; }
@@ -464,17 +486,17 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						}
 						
 						pendingDash = true;
-						actionDelayTimer = 10; // 🌟 核心还原：原版的后撤滞空时间 10 刻
+						actionDelayTimer = 10; 
 					} 
 					else if (pendingDash) {
 						pendingDash = false;
 						System.err.println("[LMR-STATE-DEBUG] 🚀 燕返出膛！绝境突刺发动 (附带腾空)！");
 						
-						// 音效定制
 						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.0F, 1.0F);
 						theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 						
 						this.isGuard = false;
+						theMaid.stopActiveHand(); // 🌟 放下盾牌动作
 						theMaid.maidAvatar.stopActiveHand(); 
 						theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
 						
@@ -489,7 +511,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							theMaid.velocityChanged = true;
 						}
 						
-						theMaid.hurtResistantTime = 20; // 🌟 核心还原：突刺过程 20 刻无敌帧
+						theMaid.hurtResistantTime = 20; 
 						this.isDashBuff = true; 
 					}
 				}
@@ -609,7 +631,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					if (!isOwnerBerserk) {
 						float triggerChance = this.isDynamicBerserk ? 0.50F : 0.25F;
 						if (theMaid.getRNG().nextFloat() < triggerChance) {
-							// 🌟 核心还原：恢复原版举盾 20到25刻长前摇！
 							this.actionDelayTimer = this.isDynamicBerserk ? 20 : 25; 
 							this.pendingBackstep = true; 
 							System.err.println("[LMR-STATE-DEBUG] ⚠️ 平A命中！进入 20-25 刻长前摇举盾防守...");
