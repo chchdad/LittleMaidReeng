@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (修复 inGround 编译报错 + 动量静止判定 + 完美原味连招)
+ * メイドさんの直接攻撃系処理 (包含滞空暴击系统 + 动态血线 + 纯逻辑护盾 + 原味连招)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -257,9 +257,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					proj instanceof net.minecraft.entity.projectile.EntityThrowable || 
 					proj instanceof net.minecraft.entity.projectile.EntityFireball) {
 					
-					// 🌟 修复：不再调用 protected 的 inGround，直接通过三轴物理动量判定！插在地上或墙上的箭必然静止！
+					// 无视没有动能的死弹射物
 					if (Math.abs(proj.motionX) < 0.01D && Math.abs(proj.motionY) < 0.01D && Math.abs(proj.motionZ) < 0.01D) {
-						continue; // 无视没有动能的死弹射物
+						continue; 
 					}
 					
 					if (proj.motionX * proj.motionX + proj.motionZ * proj.motionZ > 0.05D) {
@@ -357,7 +357,6 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					this.isDashBuff = false;
 					this.actionDelayTimer = getWeaponCooldown();
 					
-					// 动量清零，制造停顿卡肉感
 					theMaid.motionX = 0.0D;
 					theMaid.motionY = 0.0D; 
 					theMaid.motionZ = 0.0D;
@@ -388,7 +387,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 3. FSM 连招 (强制锁头 + 完美格挡锁血 + 物理后撤 -> 拔刀突刺)
+		// 3. FSM 连招 (长蓄力减伤 -> 物理后撤 -> 拔刀突刺)
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
@@ -408,12 +407,11 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.motionY = -0.08D; 
 					
 					this.isGuard = true; 
-					// 真身与虚拟玩家同步举盾，确保视觉生效
 					if (!theMaid.isHandActive()) {
-						theMaid.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+						theMaid.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 					}
 					if (!theMaid.maidAvatar.isHandActive()) {
-						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 					}
 					
 					theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 5, 1, false, false));
@@ -432,10 +430,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				if (pendingDash) {
 					this.isGuard = true;
 					if (!theMaid.isHandActive()) {
-						theMaid.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+						theMaid.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 					}
 					if (!theMaid.maidAvatar.isHandActive()) {
-						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
+						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
 					}
 				}
 
@@ -543,7 +541,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 5. 斩击判定 (瞬转 + 攻速 + 剑刃横扫)
+		// 5. 斩击判定 (瞬转 + 攻速 + 剑刃横扫 + 手动滞空暴击)
 		// =======================================================
 		if (this.actionDelayTimer <= 0 && !this.isDashBuff) {
 			double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
@@ -566,60 +564,80 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				boolean canSlashNow = (ld >= -0.35D) && theMaid.getSwingStatusDominant().canAttack();
 
 				if (canSlashNow) {
-					theMaid.attackEntityAsMob(entityTarget); 
+					// 🌟 获取攻击命中反馈
+					boolean isHit = theMaid.attackEntityAsMob(entityTarget); 
 					
 					if (rescueBerserkTimer > 100) {
 						rescueBerserkTimer = 100;
 						this.setMaidOverDrive(100); 
 					}
 					
-					if (theMaid.onGround && !theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
-						worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, 
-							net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 
-							theMaid.getSoundCategory(), 1.0F, 1.0F);
-							
-						if (worldObj instanceof net.minecraft.world.WorldServer) {
-							((net.minecraft.world.WorldServer)worldObj).spawnParticle(
-								net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, 
-								entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 
-								1, 0.0D, 0.0D, 0.0D, 0.0D
-							);
-						}
-						
-						java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(
-							EntityLivingBase.class, 
-							theMaid.getEntityBoundingBox().grow(2.0D, 1.5D, 2.0D)
-						);
-						
-						float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
-						float sweepRatio = net.minecraft.enchantment.EnchantmentHelper.getSweepingDamageRatio(theMaid);
-						float sweepDamage = 1.0F + (sweepRatio * baseAttackDamage);
-						
-						double yawRad = theMaid.renderYawOffset * Math.PI / 180.0D;
-						double lookX = -Math.sin(yawRad);
-						double lookZ = Math.cos(yawRad);
-						
-						Entity owner = theMaid.getMaidMasterEntity();
-
-						for (EntityLivingBase aoeTarget : list) {
-							if (aoeTarget == theMaid || aoeTarget == entityTarget || aoeTarget == owner || theMaid.isOnSameTeam(aoeTarget)) {
-								continue;
+					if (isHit) {
+						// 🌟 新增：手动追加滞空暴击判定 (实体默认不带跳劈)
+						if (!theMaid.onGround) {
+							theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+							if (worldObj instanceof net.minecraft.world.WorldServer) {
+								((net.minecraft.world.WorldServer)worldObj).spawnParticle(
+									net.minecraft.util.EnumParticleTypes.CRIT, 
+									entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 
+									15, 0.3D, 0.3D, 0.3D, 0.2D
+								);
 							}
 							
-							double distSq = theMaid.getDistanceSq(aoeTarget);
-							if (distSq >= 16.0D) {
-								continue;
-							}
+							// 追加原版等效的 50% 真实暴击伤害
+							float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+							entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), baseAttackDamage * 0.5F);
+							System.err.println("[LMR-STATE-DEBUG] 💥 触发滞空暴击！追加50%伤害！");
+						} 
+						// 在地面则触发正常的群体横扫 (与暴击互斥)
+						else if (!theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
+							worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, 
+								net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 
+								theMaid.getSoundCategory(), 1.0F, 1.0F);
 								
-							double dx = aoeTarget.posX - theMaid.posX;
-							double dz = aoeTarget.posZ - theMaid.posZ;
-							double distanceXY = Math.sqrt(dx * dx + dz * dz);
+							if (worldObj instanceof net.minecraft.world.WorldServer) {
+								((net.minecraft.world.WorldServer)worldObj).spawnParticle(
+									net.minecraft.util.EnumParticleTypes.SWEEP_ATTACK, 
+									entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 
+									1, 0.0D, 0.0D, 0.0D, 0.0D
+								);
+							}
 							
-							if (distanceXY > 0.0001D) {
-								double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
-								if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
-									aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
-									aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
+							java.util.List<EntityLivingBase> list = worldObj.getEntitiesWithinAABB(
+								EntityLivingBase.class, 
+								theMaid.getEntityBoundingBox().grow(2.0D, 1.5D, 2.0D)
+							);
+							
+							float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+							float sweepRatio = net.minecraft.enchantment.EnchantmentHelper.getSweepingDamageRatio(theMaid);
+							float sweepDamage = 1.0F + (sweepRatio * baseAttackDamage);
+							
+							double yawRad = theMaid.renderYawOffset * Math.PI / 180.0D;
+							double lookX = -Math.sin(yawRad);
+							double lookZ = Math.cos(yawRad);
+							
+							Entity owner = theMaid.getMaidMasterEntity();
+
+							for (EntityLivingBase aoeTarget : list) {
+								if (aoeTarget == theMaid || aoeTarget == entityTarget || aoeTarget == owner || theMaid.isOnSameTeam(aoeTarget)) {
+									continue;
+								}
+								
+								double distSq = theMaid.getDistanceSq(aoeTarget);
+								if (distSq >= 16.0D) {
+									continue;
+								}
+									
+								double dx = aoeTarget.posX - theMaid.posX;
+								double dz = aoeTarget.posZ - theMaid.posZ;
+								double distanceXY = Math.sqrt(dx * dx + dz * dz);
+								
+								if (distanceXY > 0.0001D) {
+									double cosTheta = (dx * lookX + dz * lookZ) / distanceXY;
+									if (cosTheta > 0.25D || distanceXY <= 1.2D) { 
+										aoeTarget.knockBack(theMaid, 0.4F, (double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), (double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+										aoeTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), sweepDamage);
+									}
 								}
 							}
 						}
