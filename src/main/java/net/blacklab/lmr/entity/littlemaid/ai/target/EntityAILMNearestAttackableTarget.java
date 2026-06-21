@@ -136,14 +136,14 @@ public class EntityAILMNearestAttackableTarget<T extends EntityLivingBase> exten
 			}
 			// Can't reach target
 			if (!MaidHelper.isTargetReachable(theMaid, pTarget, 0)) {
-				System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: MaidHelper.isTargetReachable() 判定此怪无法抵达 (可能被墙挡住或距离过远)！");
+				//System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: MaidHelper.isTargetReachable() 判定此怪无法抵达 (可能被墙挡住或距离过远)！");
 				return false;
 			}
 		}
 
 		// ターゲットが見えない
 		if (shouldCheckSight && !taskOwner.getEntitySenses().canSee(pTarget)) {
-			System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: 视线被遮挡 (canSee = false)！");
+			//System.out.println("[LMR-RADAR-DEBUG] 拒绝原因: 视线被遮挡 (canSee = false)！");
 			return false;
 		}
 
