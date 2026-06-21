@@ -3,7 +3,6 @@ package net.blacklab.lmr.entity.littlemaid.ai.attack;
 import firis.lmlib.api.constant.EnumSound;
 import net.blacklab.lmr.entity.littlemaid.EntityLittleMaid;
 import net.blacklab.lmr.entity.littlemaid.ai.IEntityAILM;
-import net.blacklab.lmr.util.helper.CommonHelper;
 import net.blacklab.lmr.util.helper.MaidHelper;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.SharedMonsterAttributes;
@@ -14,7 +13,7 @@ import net.minecraft.pathfinding.Path;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * 狂战士独立 AI (移除后撤步 + 5~7格突刺 + 双手总伤跳劈版)
+ * 狂战士独立 AI (专属动画修复版：普通攻击动画 + 幕后双伤结算)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -27,9 +26,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	protected int rerouteTimer;
 	protected double attackRange;
 
-	// ==========================================
-	// 连招状态机变量 (已精简：移除 pendingBackstep 和 isGuard)
-	// ==========================================
 	protected int actionDelayTimer = 0; 
 	protected boolean pendingDash = false; 
 	protected boolean isDashBuff = false; 
@@ -118,7 +114,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		if (!theMaid.isFreedom() && theMaid.getMaidMasterEntity() instanceof EntityLivingBase) {
 			EntityLivingBase master = (EntityLivingBase) theMaid.getMaidMasterEntity();
 			boolean isMasterMoving = Math.abs(master.posX - master.prevPosX) > 0.02D || Math.abs(master.posZ - master.prevPosZ) > 0.02D;
-			
 			double maxDistSq = isMasterMoving ? 225.0D : 729.0D; 
 			
 			if (theMaid.getDistanceSq(master) > maxDistSq) {
@@ -166,11 +161,10 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		}
 
 		if (this.lastTickHealth < 0) this.lastTickHealth = theMaid.getHealth();
-
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
-		// 1. 突刺命中与动作判定 (Dash Buff)
+		// 1. 突刺命中与完美伤害核算 (Dash Buff)
 		// =======================================================
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
@@ -193,25 +187,56 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				} 
 				else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D, 0.8D, 0.8D).intersects(entityTarget.getEntityBoundingBox())) {
 					
-					// 🌟 核心：计算双手斧头伤害与附魔总和
+					// 🌟 1. 计算主手总伤 (基础+附魔)
 					float mainBaseDmg = (float)theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
 					float mainEnchantDmg = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(theMaid.getHeldItemMainhand(), entityTarget.getCreatureAttribute());
-					
+					float mainTotal = mainBaseDmg + mainEnchantDmg;
+
+					// 🌟 2. 计算副手总伤 (基础+附魔)
 					float offBaseDmg = 0.0F;
-					try {
-						// 使用 CommonHelper 获取副手武器基础伤害 (类似源码实现[span_1](start_span)[span_1](end_span))
-						offBaseDmg = (float) CommonHelper.getAttackVSEntity(theMaid.getHeldItemOffhand());
-					} catch (Exception e) {}
-					float offEnchantDmg = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(theMaid.getHeldItemOffhand(), entityTarget.getCreatureAttribute());
-					
-					float totalDamage = mainBaseDmg + mainEnchantDmg + offBaseDmg + offEnchantDmg;
+					ItemStack offItem = theMaid.getHeldItemOffhand();
+					if (!offItem.isEmpty()) {
+						com.google.common.collect.Multimap<String, net.minecraft.entity.ai.attributes.AttributeModifier> modifiers = offItem.getAttributeModifiers(net.minecraft.inventory.EntityEquipmentSlot.MAINHAND);
+						for (net.minecraft.entity.ai.attributes.AttributeModifier mod : modifiers.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) {
+							offBaseDmg += (float)mod.getAmount();
+						}
+					}
+					float offEnchantDmg = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(offItem, entityTarget.getCreatureAttribute());
+					float offTotal = offBaseDmg + offEnchantDmg;
 
-					// 执行造成伤害
-					entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), totalDamage);
+					// 🌟 3. 强制使用“普通攻击”调用，触发女仆专属动画、音效、和主手伤害计算！
+					boolean isHit = theMaid.attackEntityAsMob(entityTarget);
 
-					// 🌟 核心：连续两下挥臂，制造双手劈砍动画
-					theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
-					theMaid.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
+					if (isHit) {
+						// 🌟 4. 如果命中了，幕后追加副手伤害 + 跳劈的额外50%总伤！
+						// 由于 attackEntityAsMob 已经造成了 mainTotal 的伤害，我们需要补上剩下的：
+						float extraDamage = offTotal + ((mainTotal + offTotal) * 0.5F);
+						
+						// 追加真实物理伤害
+						entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), extraDamage);
+						
+						// 手动扣除副手耐久
+						if (!offItem.isEmpty()) {
+							offItem.damageItem(1, theMaid);
+						}
+
+						// 击退与粒子特效
+						if (entityTarget instanceof EntityLivingBase) {
+							((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
+								(double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
+								(double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+							entityTarget.velocityChanged = true;
+						}
+
+						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+						if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
+							((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
+								net.minecraft.util.EnumParticleTypes.CRIT, 
+								entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
+								25, 0.4D, 0.4D, 0.4D, 0.2D
+							);
+						}
+					}
 
 					this.isDashBuff = false;
 					this.actionDelayTimer = getWeaponCooldown();
@@ -221,21 +246,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					theMaid.motionZ = 0.0D;
 					theMaid.velocityChanged = true;
 
-					if (entityTarget instanceof EntityLivingBase) {
-						((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
-							(double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
-							(double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
-						entityTarget.velocityChanged = true;
-					}
-
-					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
-					if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
-						((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
-							net.minecraft.util.EnumParticleTypes.CRIT, 
-							entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
-							15, 0.3D, 0.3D, 0.3D, 0.2D
-						);
-					}
 					this.lastTickHealth = theMaid.getHealth();
 					return; 
 				} else {
@@ -245,7 +255,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 2. FSM 连招 (仅保留突刺前摇，移除后撤)
+		// 2. 突刺起步前摇
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
@@ -312,17 +322,15 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		if (this.actionDelayTimer <= 0 && !this.isDashBuff) {
 			double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
 			
-			// 🌟 核心：距离在 5~7 格时 (25D ~ 49D)，直接进入突刺前摇状态
 			if (currentDistSq >= 25.0D && currentDistSq <= 49.0D) {
 				this.pendingDash = true;
-				this.actionDelayTimer = 10; // 给 0.5 秒的小蓄力前摇，然后弹射起步
+				this.actionDelayTimer = 10; 
 				return;
 			}
 
 			double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
 			attackRangeSq *= attackRangeSq;
 			
-			// 普通距离内的平A
 			if (currentDistSq <= attackRangeSq) {
 				double tdx = entityTarget.posX - theMaid.posX;
 				double tdz = entityTarget.posZ - theMaid.posZ;
@@ -356,9 +364,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 							entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), baseAttackDamage * 0.5F);
 						} 
 					}
-					
 					this.actionDelayTimer = getWeaponCooldown();
-					// 移除了 25% 触发连招的概率，现在只靠 5-7 格的距离判定触发
 				} 
 			} 
 		}
