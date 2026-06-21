@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (包含滞空暴击系统 + 动态血线 + 纯逻辑护盾 + 原味连招)
+ * メイドさんの直接攻撃系処理 
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -43,13 +43,13 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	protected int rescueBerserkTimer = 0;      
 	protected int rescueBerserkCooldown = 0;   
 
-	// 🏹 箭矢闪避冷却
+	//  箭矢闪避冷却
 	protected int dodgeCooldown = 0;
 	
-	// 🛡️ 护盾抵消伤害用：记录上一帧血量
+	//  护盾抵消伤害用：记录上一帧血量
 	protected float lastTickHealth = -1.0F;
 
-	// 🩸 终极动态血线状态机
+	//  终极动态血线状态机
 	protected boolean isDynamicBerserk = false; 
 	protected boolean hasBerserkPerm = true;    
 	protected boolean hitTenPercent = false;    
@@ -92,7 +92,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	public boolean shouldExecute() {
 		EntityLivingBase lentity = theMaid.getAttackTarget();
 		
-		// 强制仇恨反击锁。如果被打了但没目标，强行锁定打她的人！
+		// 如果被打了但没目标，强行锁定打她的人！
 		if (lentity == null && theMaid.getRevengeTarget() != null && theMaid.getRevengeTarget().isEntityAlive()) {
 			theMaid.setAttackTarget(theMaid.getRevengeTarget());
 			lentity = theMaid.getAttackTarget();
@@ -207,22 +207,22 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 		
 		// =========================================================
-		// 🩸 动态血线阶梯状态机
+		//  动态血线阶梯状态
 		// =========================================================
 		float hpPct = theMaid.getHealth() / theMaid.getMaxHealth();
 
 		if (hpPct <= 0.10F && !this.hitTenPercent) {
 			this.hitTenPercent = true;
-			System.err.println("[LMR-STATE-DEBUG] 🩸 跌入濒死血线(<=10%)! 激活强效恢复许可!");
+			System.err.println("[LMR-STATE-DEBUG]  跌入濒死血线(<=10%)! 激活恢复许可!");
 		}
 
 		if (this.isDynamicBerserk) {
 			if (hpPct <= 0.25F) {
 				this.isDynamicBerserk = false;
-				System.err.println("[LMR-STATE-DEBUG] 🩸 血量过低(<=25%)! 强制退出狂暴, 转为防守!");
+				System.err.println("[LMR-STATE-DEBUG]  血量过低(<=25%)! 强制退出狂暴, 转为防守!");
 			} else if (hpPct >= 0.60F) {
 				this.isDynamicBerserk = false;
-				System.err.println("[LMR-STATE-DEBUG] 🩸 血量回复(>=60%)! 解除狂暴状态!");
+				System.err.println("[LMR-STATE-DEBUG]  血量回复(>=60%)! 解除狂暴状态!");
 			}
 		}
 
@@ -230,10 +230,10 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			if (this.hitTenPercent && hpPct >= 0.80F) {
 				this.hasBerserkPerm = true;
 				this.hitTenPercent = false; 
-				System.err.println("[LMR-STATE-DEBUG] 🩸 劫后余生回血(>=80%)! 提前获取下一次狂暴许可!");
+				System.err.println("[LMR-STATE-DEBUG]  劫后余生(>=80%)! 提前获取下一次狂暴许可");
 			} else if (!this.hitTenPercent && hpPct >= 0.90F) {
 				this.hasBerserkPerm = true;
-				if (logSpamLimiter % 100 == 0) System.err.println("[LMR-STATE-DEBUG] 🩸 状态健康(>=90%)! 正常获取狂暴许可!");
+				if (logSpamLimiter % 100 == 0) System.err.println("[LMR-STATE-DEBUG]  状态健康(>=90%)! 正常获取狂暴许可");
 			}
 		}
 
@@ -241,12 +241,12 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 			if (hpPct <= 0.50F && hpPct > 0.25F) {
 				this.isDynamicBerserk = true;
 				this.hasBerserkPerm = false; 
-				System.err.println("[LMR-STATE-DEBUG] 🩸 血线跌破50%! 触发高频连招求生狂暴!");
+				System.err.println("[LMR-STATE-DEBUG]  血线跌50%!，触发高频狂暴!");
 			}
 		}
 
 		// =========================================================
-		// 🏹 防箭矢侧滑闪避
+		//  防箭矢侧滑闪避
 		// =========================================================
 		if (this.dodgeCooldown > 0) this.dodgeCooldown--;
 
@@ -283,7 +283,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							}
 							
 							this.dodgeCooldown = 40 + theMaid.getRNG().nextInt(20); 
-							System.err.println("[LMR-STATE-DEBUG] 💨 侦测到危险飞行物，战术侧滑闪避!");
+							System.err.println("[LMR-STATE-DEBUG]  侦测到飞行物，侧滑闪避!");
 							break; 
 						}
 					}
@@ -325,7 +325,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		theMaid.setBloodsuck(isOwnerBerserk); 
 		
 		// =======================================================
-		// 2. Dash 追击 (原版腾空暴击与动量归零)
+		// 2.  追击 
 		// =======================================================
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
@@ -369,7 +369,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						entityTarget.velocityChanged = true;
 					}
 
-					System.err.println("[LMR-STATE-DEBUG] 💥 腾空突刺命中！动量清零，打出暴击击退！");
+					System.err.println("[LMR-STATE-DEBUG]  腾空突刺命中，动量清零，打出暴击击退。");
 					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
 					if (worldObj instanceof net.minecraft.world.WorldServer) {
 						((net.minecraft.world.WorldServer)worldObj).spawnParticle(
@@ -387,7 +387,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 3. FSM 连招 (长蓄力减伤 -> 物理后撤 -> 拔刀突刺)
+		// 3. FSM 连招
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
@@ -437,7 +437,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					}
 				}
 
-				// 🛡️ 物理硬核防御逻辑
+				//  物理硬核防御逻辑
 				if (this.isGuard) {
 					if (theMaid.hurtTime == 10 && this.lastTickHealth > theMaid.getHealth()) {
 						float damageTaken = this.lastTickHealth - theMaid.getHealth();
@@ -487,7 +487,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					} 
 					else if (pendingDash) {
 						pendingDash = false;
-						System.err.println("[LMR-STATE-DEBUG] 🚀 燕返出膛！绝境突刺发动 (附带腾空)！");
+						System.err.println("[LMR-STATE-DEBUG] 突刺发动。");
 						
 						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.0F, 1.0F);
 						theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
@@ -518,7 +518,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 4. 寻路 (狂暴的高额移速)
+		// 4. 寻路
 		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
@@ -541,7 +541,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 5. 斩击判定 (瞬转 + 攻速 + 剑刃横扫 + 手动滞空暴击)
+		// 5. 斩击判定 
 		// =======================================================
 		if (this.actionDelayTimer <= 0 && !this.isDashBuff) {
 			double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
@@ -564,7 +564,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 				boolean canSlashNow = (ld >= -0.35D) && theMaid.getSwingStatusDominant().canAttack();
 
 				if (canSlashNow) {
-					// 🌟 获取攻击命中反馈
+					//  获取攻击命中反馈
 					boolean isHit = theMaid.attackEntityAsMob(entityTarget); 
 					
 					if (rescueBerserkTimer > 100) {
@@ -573,7 +573,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					}
 					
 					if (isHit) {
-						// 🌟 新增：手动追加滞空暴击判定 (实体默认不带跳劈)
+						// 手动追加滞空暴击判定 (实体默认不带跳劈)
 						if (!theMaid.onGround) {
 							theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
 							if (worldObj instanceof net.minecraft.world.WorldServer) {
@@ -587,9 +587,9 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 							// 追加原版等效的 50% 真实暴击伤害
 							float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
 							entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), baseAttackDamage * 0.5F);
-							System.err.println("[LMR-STATE-DEBUG] 💥 触发滞空暴击！追加50%伤害！");
+							System.err.println("[LMR-STATE-DEBUG]  触发滞空暴击，追加50%伤害。");
 						} 
-						// 在地面则触发正常的群体横扫 (与暴击互斥)
+						// 在地面则触发正常的群体横扫 
 						else if (!theMaid.getHeldItemMainhand().isEmpty() && theMaid.getHeldItemMainhand().getItem() instanceof net.minecraft.item.ItemSword) {
 							worldObj.playSound(null, theMaid.posX, theMaid.posY, theMaid.posZ, 
 								net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 
@@ -650,7 +650,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						if (theMaid.getRNG().nextFloat() < triggerChance) {
 							this.actionDelayTimer = this.isDynamicBerserk ? 20 : 25; 
 							this.pendingBackstep = true; 
-							System.err.println("[LMR-STATE-DEBUG] ⚠️ 平A命中！进入 20-25 刻长前摇举盾防守...");
+							System.err.println("[LMR-STATE-DEBUG]  平A命中，进入 20-25 刻长前摇举盾防守...");
 						} 
 					} 
 				} 
