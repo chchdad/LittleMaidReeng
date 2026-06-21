@@ -5,13 +5,15 @@ import net.blacklab.lmr.entity.littlemaid.EntityLittleMaid;
 import net.blacklab.lmr.entity.littlemaid.ai.IEntityAILM;
 import net.blacklab.lmr.util.helper.MaidHelper;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.SharedMonsterAttributes;
 import net.minecraft.entity.ai.EntityAIBase;
 import net.minecraft.item.ItemAxe;
 import net.minecraft.item.ItemStack;
 import net.minecraft.pathfinding.Path;
+import net.minecraft.util.math.MathHelper;
 
 /**
- * 狂战士独立 AI (基础框架：完美索敌 + 15格跟主追击)
+ * 狂战士独立 AI (保留 15格跟主 + 剑士 FSM 连招 + 移除横扫保留跳劈)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -24,18 +26,36 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	protected int rerouteTimer;
 	protected double attackRange;
 
+	// ==========================================
+	// 剑士连招状态机变量
+	// ==========================================
+	protected int actionDelayTimer = 0; 
+	protected boolean pendingBackstep = false; 
+	protected boolean pendingDash = false; 
+	protected boolean isDashBuff = false; 
+	public boolean isGuard = false;
+	protected float lastTickHealth = -1.0F;
+
 	public EntityAILMAttackBerserker(EntityLittleMaid par1EntityLittleMaid) {
 		theMaid = par1EntityLittleMaid;
-		moveSpeed = 1.0F; // 基础移速
+		moveSpeed = 1.0F;
 		isReroute = true;
 		setMutexBits(3); 
+	}
+
+	private int getWeaponCooldown() {
+		float attackSpeed = 4.0F; 
+		net.minecraft.entity.ai.attributes.IAttributeInstance speedAttr = theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED);
+		if (speedAttr != null) {
+			attackSpeed = (float) speedAttr.getAttributeValue();
+		}
+		return (int)(20.0F / Math.max(0.1F, attackSpeed));
 	}
 
 	@Override
 	public boolean shouldExecute() {
 		if (theMaid.isMaidWait()) return false;
 
-		// 极其严格的双手双斧判定
 		ItemStack mainHand = theMaid.getHeldItemMainhand();
 		ItemStack offHand = theMaid.getHeldItemOffhand();
 		boolean hasMainAxe = !mainHand.isEmpty() && mainHand.getItem() instanceof ItemAxe;
@@ -46,8 +66,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		}
 
 		EntityLivingBase lentity = theMaid.getAttackTarget();
-		
-		// 强制仇恨反击锁：被打立刻锁定反击
 		if (lentity == null && theMaid.getRevengeTarget() != null && theMaid.getRevengeTarget().isEntityAlive()) {
 			theMaid.setAttackTarget(theMaid.getRevengeTarget());
 			lentity = theMaid.getAttackTarget();
@@ -76,7 +94,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	@Override
 	public void startExecuting() {
 		if(entityTarget != null && !entityTarget.isDead){
-			// 狂战士起手直接强制播放红眼狂暴音效
 			theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true);
 		}
 		
@@ -88,13 +105,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		rerouteTimer = 0;
 		theMaid.stopActiveHand(); 
 		theMaid.maidAvatar.stopActiveHand();
+		this.lastTickHealth = theMaid.getHealth(); 
 	}
 
 	@Override
 	public boolean shouldContinueExecuting() {
-		// ==========================================
-		// 1. 跟主逻辑 (15格)
-		// ==========================================
+		if (actionDelayTimer > 0 || pendingBackstep || pendingDash || isDashBuff) {
+			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) {
+				return true; 
+			}
+		}
+
 		if (!theMaid.isFreedom() && theMaid.getMaidMasterEntity() instanceof EntityLivingBase) {
 			EntityLivingBase master = (EntityLivingBase) theMaid.getMaidMasterEntity();
 			boolean isMasterMoving = Math.abs(master.posX - master.prevPosX) > 0.02D || Math.abs(master.posZ - master.prevPosZ) > 0.02D;
@@ -109,14 +130,12 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			}
 		}
 
-		// 2. 目标存活判定
 		EntityLivingBase lentity = theMaid.getAttackTarget();
 		if (lentity == null || entityTarget != lentity || entityTarget.isDead || !entityTarget.isEntityAlive()) {
 			resetTask();
 			return false;
 		}
 
-		// 3. 寻路可达性判定
 		if (!MaidHelper.isTargetReachable(this.theMaid, lentity, 0.0D)) {
 			return false;
 		}
@@ -134,6 +153,12 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		theMaid.setRevengeTarget(null);
 		theMaid.stopActiveHand(); 
 		theMaid.maidAvatar.stopActiveHand();
+
+		actionDelayTimer = 0;
+		pendingBackstep = false;
+		pendingDash = false;
+		isDashBuff = false;
+		isGuard = false;
 	}
 
 	@Override
@@ -143,22 +168,189 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			return;
 		}
 
-		// 强制盯住目标
+		if (this.lastTickHealth < 0) this.lastTickHealth = theMaid.getHealth();
+
 		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
-		// ==========================================
-		// 4. 寻路与锁敌逻辑
-		// ==========================================
+		// =======================================================
+		// 1. 突刺 (Dash Buff)
+		// =======================================================
+		if (this.isDashBuff) {
+			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
+				this.isDashBuff = false;
+				theMaid.hurtResistantTime = 0;
+			} else {
+				double dX = entityTarget.posX - theMaid.posX;
+				double dZ = entityTarget.posZ - theMaid.posZ;
+				double distance = Math.sqrt(dX * dX + dZ * dZ);
+
+				theMaid.rotationYaw = (float)(Math.atan2(dZ, dX) * 180.0D / Math.PI) - 90.0F;
+				theMaid.renderYawOffset = theMaid.rotationYaw;
+
+				if (distance > 1.5D && distance < 10.0D) {
+					theMaid.motionX = (dX / distance) * 0.9D;
+					theMaid.motionZ = (dZ / distance) * 0.9D;
+					theMaid.velocityChanged = true;
+					this.lastTickHealth = theMaid.getHealth();
+					return; 
+				} 
+				else if (distance <= 1.5D || theMaid.getEntityBoundingBox().grow(0.8D, 0.8D, 0.8D).intersects(entityTarget.getEntityBoundingBox())) {
+					theMaid.attackEntityAsMob(entityTarget);
+
+					this.isDashBuff = false;
+					this.actionDelayTimer = getWeaponCooldown();
+					
+					theMaid.motionX = 0.0D;
+					theMaid.motionY = 0.0D; 
+					theMaid.motionZ = 0.0D;
+					theMaid.velocityChanged = true;
+
+					if (entityTarget instanceof EntityLivingBase) {
+						((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
+							(double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
+							(double)(-MathHelper.cos(theMaid.rotationYaw * 0.017453292F)));
+						entityTarget.velocityChanged = true;
+					}
+
+					theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+					if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
+						((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
+							net.minecraft.util.EnumParticleTypes.CRIT, 
+							entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
+							15, 0.3D, 0.3D, 0.3D, 0.2D
+						);
+					}
+					this.lastTickHealth = theMaid.getHealth();
+					return; 
+				} else {
+					this.isDashBuff = false;
+				}
+			}
+		}
+
+		// =======================================================
+		// 2. FSM 连招
+		// =======================================================
+		if (actionDelayTimer > 0) {
+			actionDelayTimer--;
+			
+			if (pendingBackstep || pendingDash) {
+				double forceLookX = entityTarget.posX - theMaid.posX;
+				double forceLookZ = entityTarget.posZ - theMaid.posZ;
+				float strictTargetYaw = (float)(Math.atan2(forceLookZ, forceLookX) * 180.0D / Math.PI) - 90.0F;
+				theMaid.rotationYaw = strictTargetYaw;
+				theMaid.rotationYawHead = strictTargetYaw;
+				theMaid.renderYawOffset = strictTargetYaw;
+				
+				if (pendingBackstep) {
+					theMaid.motionX = 0.0D;
+					theMaid.motionZ = 0.0D;
+					theMaid.motionY = -0.08D; 
+					
+					this.isGuard = true; 
+					if (!theMaid.isHandActive()) {
+						theMaid.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
+					}
+					if (!theMaid.maidAvatar.isHandActive()) {
+						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
+					}
+					theMaid.addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.init.MobEffects.RESISTANCE, 5, 1, false, false));
+				}
+				
+				if (pendingDash) {
+					this.isGuard = true;
+					if (!theMaid.isHandActive()) {
+						theMaid.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
+					}
+					if (!theMaid.maidAvatar.isHandActive()) {
+						theMaid.maidAvatar.setActiveHand(net.minecraft.util.EnumHand.OFF_HAND);
+					}
+				}
+
+				if (this.isGuard) {
+					if (theMaid.hurtTime == 10 && this.lastTickHealth > theMaid.getHealth()) {
+						float damageTaken = this.lastTickHealth - theMaid.getHealth();
+						theMaid.heal(damageTaken); 
+						theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_SHIELD_BLOCK, 1.0F, 0.8F + theMaid.getRNG().nextFloat() * 0.4F);
+					}
+					if (theMaid.getHealth() <= 1.0F) {
+						theMaid.setHealth(1.0F);
+						if (theMaid.isDead) {
+							theMaid.isDead = false;
+							theMaid.deathTime = 0;
+						}
+					}
+				}
+				
+				if (actionDelayTimer <= 0) {
+					if (pendingBackstep) {
+						pendingBackstep = false; 
+						
+						boolean hasArmor = false;
+						for (net.minecraft.item.ItemStack armorStack : theMaid.getArmorInventoryList()) {
+							if (armorStack != null && !armorStack.isEmpty()) { hasArmor = true; break; }
+						}
+						if (hasArmor) {
+							theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_ARMOR_EQUIP_LEATHER, 0.8F, 1.2F);
+						} else {
+							theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_ARMOR_EQUIP_GENERIC, 0.8F, 1.2F);
+						}
+						
+						double dX = theMaid.posX - entityTarget.posX;
+						double dZ = theMaid.posZ - entityTarget.posZ;
+						double distance = Math.sqrt(dX * dX + dZ * dZ);
+						
+						if (distance >= 0.0001D) {
+							theMaid.motionX = (dX / distance) * 0.6D;
+							theMaid.motionZ = (dZ / distance) * 0.6D;
+							theMaid.motionY = 0.0D; 
+							theMaid.velocityChanged = true;
+						}
+						
+						pendingDash = true;
+						actionDelayTimer = 10; 
+					} 
+					else if (pendingDash) {
+						pendingDash = false;
+						
+						theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.0F, 1.0F);
+						theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true);
+						
+						this.isGuard = false;
+						theMaid.stopActiveHand(); 
+						theMaid.maidAvatar.stopActiveHand(); 
+						theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+						
+						double dX = entityTarget.posX - theMaid.posX;
+						double dZ = entityTarget.posZ - theMaid.posZ;
+						double distance = Math.sqrt(dX * dX + dZ * dZ);
+						
+						if (distance >= 0.0001D) {
+							theMaid.motionX = (dX / distance) * 1.2D; 
+							theMaid.motionZ = (dZ / distance) * 1.2D;
+							theMaid.motionY = 0.2D;  
+							theMaid.velocityChanged = true;
+						}
+						
+						theMaid.hurtResistantTime = 20; 
+						this.isDashBuff = true; 
+					}
+				}
+				this.lastTickHealth = theMaid.getHealth();
+				return; 
+			}
+		}
+
+		// =======================================================
+		// 3. 寻路追击
+		// =======================================================
 		if (--rerouteTimer <= 0) {
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
 				rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
 				
 				double distToTarget = theMaid.getDistanceSq(entityTarget);
-				
-				// 狂战士基础冲锋移速
 				float burstSpeed = moveSpeed * 1.5F; 
 				if (distToTarget < 36.0D) {
-					// 距离较近时，爆发出更强的追击速度
 					burstSpeed = moveSpeed * 1.8F; 
 				}
 				
@@ -168,9 +360,62 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				theMaid.setRevengeTarget(null);
 			}
 		}
-		
-		// 注意：暂无物理攻击代码，当前她跑到敌人面前后只会紧紧贴住敌人。
-	}
+
+		// =======================================================
+		// 4. 斩击判定
+		// =======================================================
+		if (this.actionDelayTimer <= 0 && !this.isDashBuff) {
+			double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
+			attackRangeSq *= attackRangeSq;
+			double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
+			
+			if (currentDistSq <= attackRangeSq) {
+				double tdx = entityTarget.posX - theMaid.posX;
+				double tdz = entityTarget.posZ - theMaid.posZ;
+				float targetYaw = (float)(Math.atan2(tdz, tdx) * 180.0D / Math.PI) - 90.0F;
+				
+				theMaid.rotationYaw = targetYaw;
+				theMaid.rotationYawHead = targetYaw;
+				theMaid.renderYawOffset = targetYaw;
+
+				double vdx = -Math.sin(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
+				double vdz = Math.cos(theMaid.renderYawOffset * 3.1415926535897932384626433832795F / 180F);
+				double ld = (tdx * vdx + tdz * vdz) / (Math.sqrt(tdx * tdx + tdz * tdz) * Math.sqrt(vdx * vdx + vdz * vdz));
+				
+				boolean canSlashNow = (ld >= -0.35D) && theMaid.getSwingStatusDominant().canAttack();
+
+				if (canSlashNow) {
+					boolean isHit = theMaid.attackEntityAsMob(entityTarget); 
+					
+					if (isHit) {
+						// 🌟 仅保留跳劈暴击判定，去除了横扫群伤逻辑
+						if (!theMaid.onGround) {
+							theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+							if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
+								((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
+									net.minecraft.util.EnumParticleTypes.CRIT, 
+									entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 
+									15, 0.3D, 0.3D, 0.3D, 0.2D
+								);
+							}
+							
+							float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+							entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), baseAttackDamage * 0.5F);
+						} 
+					}
+					
+					this.actionDelayTimer = getWeaponCooldown();
+
+					if (theMaid.getRNG().nextFloat() < 0.25F) {
+						this.actionDelayTimer = 25; 
+						this.pendingBackstep = true; 
+					} 
+				} 
+			} 
+		}
+
+		this.lastTickHealth = theMaid.getHealth();
+	} 
 
 	@Override
 	public void setEnable(boolean pFlag) { fEnable = pFlag; }
