@@ -13,7 +13,7 @@ import net.minecraft.pathfinding.Path;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * 狂战士独立 AI (首击不退 + 无视无敌帧 + 二段击飞版)
+ * 狂战士独立 AI (击杀判定 + 10秒过载CD版)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -26,18 +26,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	protected int rerouteTimer;
 	protected double attackRange;
 
-	// ==========================================
-	// 二连斩状态机核心变量
-	// ==========================================
 	protected int actionDelayTimer = 0; 
 	protected boolean pendingDash = false; 
 	protected boolean isDashBuff = false; 
 	protected float lastTickHealth = -1.0F;
 	
-	// 副手追击计时器与缓存伤害
 	protected boolean pendingOffhandStrike = false;
 	protected int comboDelayTimer = 0;
 	protected float storedOffhandDamage = 0.0F;
+	
+	// 🌟 新增：记录下一次允许发动突刺的世界时间戳
+	protected long nextDashTime = 0L;
 
 	public EntityAILMAttackBerserker(EntityLittleMaid par1EntityLittleMaid) {
 		theMaid = par1EntityLittleMaid;
@@ -103,7 +102,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 	@Override
 	public boolean shouldContinueExecuting() {
-		// 连斩霸体锁
 		if (actionDelayTimer > 0 || pendingDash || isDashBuff || pendingOffhandStrike) {
 			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) return true; 
 		}
@@ -163,20 +161,14 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			
 			if (comboDelayTimer <= 0) {
 				pendingOffhandStrike = false;
-
-				// 强制调用系统原生副手挥动
 				theMaid.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
-
-				// 🌟 核心修改：清空怪物的无敌帧！
 				entityTarget.hurtResistantTime = 0;
 
-				System.err.println("[LMR-BERSERKER-DMG] ⚔️ 连斩第二段！副手狂劈，无视无敌帧追加真实伤害: " + this.storedOffhandDamage);
 				entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), this.storedOffhandDamage);
 				
 				ItemStack offItem = theMaid.getHeldItemOffhand();
 				if (!offItem.isEmpty()) offItem.damageItem(1, theMaid);
 
-				// 🌟 第二段强力击退
 				if (entityTarget instanceof EntityLivingBase) {
 					((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
 						(double)MathHelper.sin(theMaid.rotationYaw * 0.017453292F), 
@@ -191,6 +183,12 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 						entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
 						25, 0.4D, 0.4D, 0.4D, 0.2D
 					);
+				}
+
+				// 🌟 判定：如果第二刀秒杀了怪物，触发 10 秒过载 CD
+				if (entityTarget.getHealth() <= 0.0F || entityTarget.isDead) {
+					this.nextDashTime = theMaid.getEntityWorld().getTotalWorldTime() + 200L;
+					System.err.println("[LMR-BERSERKER-DMG] 💀 目标被连斩击杀！双斧进入 10 秒过载 CD。");
 				}
 
 				this.actionDelayTimer = getWeaponCooldown();
@@ -244,16 +242,13 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					float rawTotal = mainTotal + offTotal;
 					float finalDamage = rawTotal * 1.5F;
 
-					// 🌟 核心修改：在攻击前记录怪物当前的动量
 					double prevMotionX = entityTarget.motionX;
 					double prevMotionY = entityTarget.motionY;
 					double prevMotionZ = entityTarget.motionZ;
 
-					// 触发原版攻击
 					boolean isHit = theMaid.attackEntityAsMob(entityTarget);
 
 					if (isHit) {
-						// 🌟 核心修改：攻击完成后立刻把动量还给怪物，强行抹除原版击退！
 						entityTarget.motionX = prevMotionX;
 						entityTarget.motionY = prevMotionY;
 						entityTarget.motionZ = prevMotionZ;
@@ -261,13 +256,15 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 						this.storedOffhandDamage = finalDamage - mainTotal;
 
-						System.err.println("[LMR-BERSERKER-DMG] 🪓🩸 双斧突刺一发命中 (已取消击退)！");
-						System.err.println("[LMR-BERSERKER-DMG] 📊 主手 -> 合计: " + mainTotal + " | 副手 -> 合计: " + offTotal);
-						System.err.println("[LMR-BERSERKER-DMG] 💥 1.5倍跳劈最终总伤: " + finalDamage);
-						System.err.println("[LMR-BERSERKER-DMG] ⏱️ 主手已斩下！0.25秒后无视无敌帧击飞...");
+						// 🌟 判定：如果第一刀就把怪物秒杀了，直接触发 10 秒过载，且不再执行第二刀
+						if (entityTarget.getHealth() <= 0.0F || entityTarget.isDead) {
+							this.nextDashTime = theMaid.getEntityWorld().getTotalWorldTime() + 200L;
+							System.err.println("[LMR-BERSERKER-DMG] 💀 目标被突刺首击秒杀！双斧进入 10 秒过载 CD。");
+						} else {
+							this.pendingOffhandStrike = true;
+							this.comboDelayTimer = 5;
+						}
 
-						this.pendingOffhandStrike = true;
-						this.comboDelayTimer = 5;
 					} else {
 						this.actionDelayTimer = getWeaponCooldown();
 					}
@@ -346,10 +343,13 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		if (this.actionDelayTimer <= 0 && !this.isDashBuff && !this.pendingOffhandStrike) {
 			double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
 			
+			// 🌟 新增：检测 10秒 CD 是否已经冷却完毕
 			if (currentDistSq >= 25.0D && currentDistSq <= 49.0D) {
-				this.pendingDash = true;
-				this.actionDelayTimer = 10; 
-				return;
+				if (theMaid.getEntityWorld().getTotalWorldTime() >= this.nextDashTime) {
+					this.pendingDash = true;
+					this.actionDelayTimer = 10; 
+					return;
+				}
 			}
 
 			double attackRangeSq = (double)theMaid.width + (double)entityTarget.width + 0.8D;
