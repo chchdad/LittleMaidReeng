@@ -8,7 +8,7 @@ import net.minecraft.item.ItemAxe;
 import net.minecraft.item.ItemStack;
 
 /**
- * 狂战士的独立测试 AI (双手双斧严格判定 + 脑电波实时诊断)
+ * 狂战士独立 AI (全链路曳光弹监控版)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -18,12 +18,36 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 	public EntityAILMAttackBerserker(EntityLittleMaid par1EntityLittleMaid) {
 		theMaid = par1EntityLittleMaid;
-		setMutexBits(3); 
+		setMutexBits(3);
+		// 🌟 监控点 1：出生证明。只要 EntityLittleMaid.java 里 new 了它，启动游戏时必弹！
+		System.err.println("[LMR-BERSERKER-TRACE] 🐣 狂战士大脑被实例化！宿主ID: " + (theMaid != null ? theMaid.getEntityId() : "幽灵"));
 	}
+
+	@Override
+	public void setEnable(boolean pFlag) { 
+		fEnable = pFlag; 
+		// 🌟 监控点 2：电闸监控。看看切模式时，总控台有没有给它通电或断电
+		System.err.println("[LMR-BERSERKER-TRACE] ⚡ 狂战士大脑电闸被拨动：当前状态 -> " + pFlag);
+	}
+
+	@Override
+	public boolean getEnable() { return fEnable; }
 
 	@Override
 	public boolean shouldExecute() {
 		tickCounter++;
+		
+		// 🌟 监控点 3：无条件心跳包。只要这串代码在任务列表里，每 3 秒（60刻）雷打不动报数！
+		if (tickCounter % 60 == 0) {
+			ItemStack mainHand = theMaid.getHeldItemMainhand();
+			ItemStack offHand = theMaid.getHeldItemOffhand();
+			String mName = mainHand.isEmpty() ? "空" : mainHand.getDisplayName();
+			String oName = offHand.isEmpty() ? "空" : offHand.getDisplayName();
+			
+			System.err.println("[LMR-BERSERKER-TRACE] 💓 脑电波持续跳动中... 模式:[" + theMaid.getMaidModeString() + "] 主手:[" + mName + "] 副手:[" + oName + "]");
+		}
+
+		if (theMaid.isMaidWait()) return false;
 		
 		ItemStack mainHand = theMaid.getHeldItemMainhand();
 		ItemStack offHand = theMaid.getHeldItemOffhand();
@@ -31,27 +55,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		boolean hasMainAxe = !mainHand.isEmpty() && mainHand.getItem() instanceof ItemAxe;
 		boolean hasOffAxe = !offHand.isEmpty() && offHand.getItem() instanceof ItemAxe;
 		
-		//  脑电波探针：只要主手有斧头，每2秒强制汇报一次她的视觉和判定状态！
-		if (tickCounter % 40 == 0 && hasMainAxe) {
-			String mName = mainHand.isEmpty() ? "空" : mainHand.getDisplayName();
-			String oName = offHand.isEmpty() ? "空" : offHand.getDisplayName();
-			EntityLivingBase target = theMaid.getAttackTarget();
-			String tName = target != null ? target.getName() : "无目标";
-			
-			System.err.println("[LMR-BERSERKER-CHECK] 脑电波扫描... 主手:[" + mName + "] 副手:[" + oName + "] 仇恨目标:[" + tName + "]");
-			
-			if (!hasOffAxe) {
-				System.err.println("[LMR-BERSERKER-CHECK] 拦截: 副手不是斧头！狂战士血脉被压制，她现在是个只想砍树的伐木工");
-			} else if (target == null) {
-				System.err.println("[LMR-BERSERKER-CHECK] 拦截: 双斧已就绪，但没锁定敌人(可能模式未切换到 Bloodsucker)");
-			}
-		}
-
-		if (theMaid.isMaidWait()) return false;
-		
-		// 只有主手和副手同时拿着斧头，才会激活狂战士之血！
 		if (!(hasMainAxe && hasOffAxe)) {
-			return false;
+			return false; // 不是双斧，继续潜伏
 		}
 
 		EntityLivingBase target = theMaid.getAttackTarget();
@@ -63,23 +68,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		theMaid.getNavigator().clearPath();
 		theMaid.motionX = 0;
 		theMaid.motionZ = 0;
-		System.err.println("[LMR-BERSERKER-DEBUG]  双斧就位，进入罚站模式！");
+		System.err.println("[LMR-BERSERKER-TRACE] 💥💥💥 狂战士强制夺舍成功！准备大开杀戒！");
 	}
 
 	@Override
 	public void updateTask() {
 		if (tickCounter % 20 == 0) {
-			System.err.println("[LMR-BERSERKER-DEBUG]  狂战士：盯着猎物发呆");
+			System.err.println("[LMR-BERSERKER-TRACE] 🪓🩸 锁定目标！正在发呆！");
 		}
-		
 		EntityLivingBase target = theMaid.getAttackTarget();
 		if (target != null) {
 			theMaid.getLookHelper().setLookPositionWithEntity(target, 30F, 30F);
 		}
 	}
-
-	@Override
-	public void setEnable(boolean pFlag) { fEnable = pFlag; }
-	@Override
-	public boolean getEnable() { return fEnable; }
 }
