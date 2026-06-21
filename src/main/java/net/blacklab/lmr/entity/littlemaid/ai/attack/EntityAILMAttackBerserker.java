@@ -8,32 +8,48 @@ import net.minecraft.item.ItemAxe;
 import net.minecraft.item.ItemStack;
 
 /**
- * 狂战士的独立测试 AI (双手双斧严格判定 + 强制供电全局接管)
+ * 狂战士的独立测试 AI (双手双斧严格判定 + 脑电波实时诊断)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
 	protected boolean fEnable;
 	protected EntityLittleMaid theMaid;
-	private int logLimiter = 0;
+	private int tickCounter = 0;
 
 	public EntityAILMAttackBerserker(EntityLittleMaid par1EntityLittleMaid) {
 		theMaid = par1EntityLittleMaid;
-		setMutexBits(3); // 占用寻路和身体动作，让她罚站
+		setMutexBits(3); 
 	}
 
 	@Override
 	public boolean shouldExecute() {
-		// 删除了 !fEnable，彻底无视总控台的开关！
-		if (theMaid.isMaidWait()) return false;
+		tickCounter++;
 		
-		// 极其严格的“双手双斧”判定！
 		ItemStack mainHand = theMaid.getHeldItemMainhand();
 		ItemStack offHand = theMaid.getHeldItemOffhand();
 		
 		boolean hasMainAxe = !mainHand.isEmpty() && mainHand.getItem() instanceof ItemAxe;
 		boolean hasOffAxe = !offHand.isEmpty() && offHand.getItem() instanceof ItemAxe;
 		
-		// 只有主手和副手同时拿着斧头，才会激活狂战士！
+		//  脑电波探针：只要主手有斧头，每2秒强制汇报一次她的视觉和判定状态！
+		if (tickCounter % 40 == 0 && hasMainAxe) {
+			String mName = mainHand.isEmpty() ? "空" : mainHand.getDisplayName();
+			String oName = offHand.isEmpty() ? "空" : offHand.getDisplayName();
+			EntityLivingBase target = theMaid.getAttackTarget();
+			String tName = target != null ? target.getName() : "无目标";
+			
+			System.err.println("[LMR-BERSERKER-CHECK] 脑电波扫描... 主手:[" + mName + "] 副手:[" + oName + "] 仇恨目标:[" + tName + "]");
+			
+			if (!hasOffAxe) {
+				System.err.println("[LMR-BERSERKER-CHECK] 拦截: 副手不是斧头！狂战士血脉被压制，她现在是个只想砍树的伐木工");
+			} else if (target == null) {
+				System.err.println("[LMR-BERSERKER-CHECK] 拦截: 双斧已就绪，但没锁定敌人(可能模式未切换到 Bloodsucker)");
+			}
+		}
+
+		if (theMaid.isMaidWait()) return false;
+		
+		// 只有主手和副手同时拿着斧头，才会激活狂战士之血！
 		if (!(hasMainAxe && hasOffAxe)) {
 			return false;
 		}
@@ -44,17 +60,16 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	
 	@Override
 	public void startExecuting() {
-		// 一旦接管，立刻强行刹车，打断那个原版的“跳扑”动作！
 		theMaid.getNavigator().clearPath();
 		theMaid.motionX = 0;
 		theMaid.motionZ = 0;
+		System.err.println("[LMR-BERSERKER-DEBUG]  双斧就位，进入罚站模式！");
 	}
 
 	@Override
 	public void updateTask() {
-		logLimiter++;
-		if (logLimiter % 20 == 0) {
-			System.err.println("[LMR-BERSERKER-DEBUG]  狂战士连通！");
+		if (tickCounter % 20 == 0) {
+			System.err.println("[LMR-BERSERKER-DEBUG]  狂战士：盯着猎物发呆");
 		}
 		
 		EntityLivingBase target = theMaid.getAttackTarget();
