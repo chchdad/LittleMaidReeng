@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (修复地上的箭误判 + 修复实体举盾视觉缺失 + 增加强制仇恨反击)
+ * メイドさんの直接攻撃系処理 (修复 inGround 编译报错 + 动量静止判定 + 完美原味连招)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -92,7 +92,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 	public boolean shouldExecute() {
 		EntityLivingBase lentity = theMaid.getAttackTarget();
 		
-		// 🌟 修复3：强制仇恨反击锁。如果被打了但没目标，强行锁定打她的人！
+		// 强制仇恨反击锁。如果被打了但没目标，强行锁定打她的人！
 		if (lentity == null && theMaid.getRevengeTarget() != null && theMaid.getRevengeTarget().isEntityAlive()) {
 			theMaid.setAttackTarget(theMaid.getRevengeTarget());
 			lentity = theMaid.getAttackTarget();
@@ -253,16 +253,14 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 		if (this.dodgeCooldown <= 0) {
 			java.util.List<Entity> projectiles = worldObj.getEntitiesWithinAABBExcludingEntity(theMaid, theMaid.getEntityBoundingBox().grow(6.0D, 2.0D, 6.0D));
 			for (Entity proj : projectiles) {
-				// 🌟 修复1：绝对无视插在地上的箭！
-				if (proj instanceof net.minecraft.entity.projectile.EntityArrow) {
-					if (((net.minecraft.entity.projectile.EntityArrow)proj).inGround) {
-						continue; 
-					}
-				}
-				
 				if (proj instanceof net.minecraft.entity.projectile.EntityArrow || 
 					proj instanceof net.minecraft.entity.projectile.EntityThrowable || 
 					proj instanceof net.minecraft.entity.projectile.EntityFireball) {
+					
+					// 🌟 修复：不再调用 protected 的 inGround，直接通过三轴物理动量判定！插在地上或墙上的箭必然静止！
+					if (Math.abs(proj.motionX) < 0.01D && Math.abs(proj.motionY) < 0.01D && Math.abs(proj.motionZ) < 0.01D) {
+						continue; // 无视没有动能的死弹射物
+					}
 					
 					if (proj.motionX * proj.motionX + proj.motionZ * proj.motionZ > 0.05D) {
 						double dodgeDirX = -proj.motionZ;
@@ -359,6 +357,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					this.isDashBuff = false;
 					this.actionDelayTimer = getWeaponCooldown();
 					
+					// 动量清零，制造停顿卡肉感
 					theMaid.motionX = 0.0D;
 					theMaid.motionY = 0.0D; 
 					theMaid.motionZ = 0.0D;
@@ -409,7 +408,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					theMaid.motionY = -0.08D; 
 					
 					this.isGuard = true; 
-					// 🌟 修复2：真实赋予模型举盾动画！不光是Avatar，真身也要举盾！
+					// 真身与虚拟玩家同步举盾，确保视觉生效
 					if (!theMaid.isHandActive()) {
 						theMaid.setActiveHand(net.minecraft.util.EnumHand.MAIN_HAND);
 					}
@@ -496,7 +495,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						theMaid.playLittleMaidVoiceSound(theMaid.isBloodsuck() ? EnumSound.FIND_TARGET_B : EnumSound.FIND_TARGET_N, true);
 						
 						this.isGuard = false;
-						theMaid.stopActiveHand(); // 🌟 放下盾牌动作
+						theMaid.stopActiveHand(); 
 						theMaid.maidAvatar.stopActiveHand(); 
 						theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
 						
