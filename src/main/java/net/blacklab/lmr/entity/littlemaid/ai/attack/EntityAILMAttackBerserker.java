@@ -8,7 +8,7 @@ import net.minecraft.item.ItemAxe;
 import net.minecraft.item.ItemStack;
 
 /**
- * 狂战士的独立测试 AI
+ * 狂战士的独立测试 AI (双手双斧严格判定 + 强制供电全局接管)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -23,16 +23,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 	@Override
 	public boolean shouldExecute() {
-		if (!fEnable || theMaid.isMaidWait()) return false;
+		// 删除了 !fEnable，彻底无视总控台的开关！
+		if (theMaid.isMaidWait()) return false;
 		
-		//双手双斧判定
+		// 极其严格的“双手双斧”判定！
 		ItemStack mainHand = theMaid.getHeldItemMainhand();
 		ItemStack offHand = theMaid.getHeldItemOffhand();
 		
 		boolean hasMainAxe = !mainHand.isEmpty() && mainHand.getItem() instanceof ItemAxe;
 		boolean hasOffAxe = !offHand.isEmpty() && offHand.getItem() instanceof ItemAxe;
 		
-		// 只有主手和副手同时拿着斧头，才会狂战士！单手斧不触发！
+		// 只有主手和副手同时拿着斧头，才会激活狂战士！
 		if (!(hasMainAxe && hasOffAxe)) {
 			return false;
 		}
@@ -43,14 +44,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	
 	@Override
 	public void startExecuting() {
+		// 一旦接管，立刻强行刹车，打断那个原版的“跳扑”动作！
 		theMaid.getNavigator().clearPath();
+		theMaid.motionX = 0;
+		theMaid.motionZ = 0;
 	}
 
 	@Override
 	public void updateTask() {
 		logLimiter++;
 		if (logLimiter % 20 == 0) {
-			System.err.println("[LMR-BERSERKER-DEBUG] 狂战士连通，正在测试。");
+			System.err.println("[LMR-BERSERKER-DEBUG]  狂战士连通！");
 		}
 		
 		EntityLivingBase target = theMaid.getAttackTarget();
