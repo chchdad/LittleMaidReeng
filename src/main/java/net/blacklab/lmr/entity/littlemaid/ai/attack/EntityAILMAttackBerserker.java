@@ -13,7 +13,7 @@ import net.minecraft.pathfinding.Path;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * 狂战士独立 AI (击杀判定 + 10秒过载CD版)
+ * 狂战士独立 AI (终极猩红连斩：锁血/越战越勇/处决/动能清零防穿模版)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -26,17 +26,33 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	protected int rerouteTimer;
 	protected double attackRange;
 
+	// 基础动作与冷却
 	protected int actionDelayTimer = 0; 
 	protected boolean pendingDash = false; 
 	protected boolean isDashBuff = false; 
 	protected float lastTickHealth = -1.0F;
-	
 	protected boolean pendingOffhandStrike = false;
 	protected int comboDelayTimer = 0;
 	protected float storedOffhandDamage = 0.0F;
-	
-	// 🌟 新增：记录下一次允许发动突刺的世界时间戳
 	protected long nextDashTime = 0L;
+
+	// 🌟 防鬼畜音效计时器
+	protected int soundDelayTimer = 0;
+
+	// 🌟 猩红连斩 (Omnislash) 状态机变量
+	protected boolean hasBerserkPerm = true;
+	protected boolean isFrenzy = false;
+	protected int frenzyTimer = 0;
+	protected int slashCount = 0;
+	protected float comboDamageBonus = 0.0F;
+	protected float comboDefBonus = 0.0F;
+	protected EntityLivingBase frenzyTarget = null;
+	protected boolean isSingleTarget = false;
+	protected boolean killClaimed = false;
+
+	// 霸体光环核心
+	protected static final java.util.UUID JUGGERNAUT_KB_UUID = java.util.UUID.fromString("8b7042a9-7fa1-4e4b-91d1-12f5a2b53f66");
+	protected static final net.minecraft.entity.ai.attributes.AttributeModifier JUGGERNAUT_KB_RESIST = new net.minecraft.entity.ai.attributes.AttributeModifier(JUGGERNAUT_KB_UUID, "Juggernaut KB Resist", 1.0D, 0).setSaved(false);
 
 	public EntityAILMAttackBerserker(EntityLittleMaid par1EntityLittleMaid) {
 		theMaid = par1EntityLittleMaid;
@@ -52,6 +68,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			attackSpeed = (float) speedAttr.getAttributeValue();
 		}
 		return (int)(20.0F / Math.max(0.1F, attackSpeed));
+	}
+
+	private void setJuggernaut(boolean active) {
+		net.minecraft.entity.ai.attributes.IAttributeInstance kbAttr = theMaid.getEntityAttribute(SharedMonsterAttributes.KNOCKBACK_RESISTANCE);
+		if (kbAttr != null) {
+			if (active && !kbAttr.hasModifier(JUGGERNAUT_KB_RESIST)) {
+				kbAttr.applyModifier(JUGGERNAUT_KB_RESIST);
+			} else if (!active && kbAttr.hasModifier(JUGGERNAUT_KB_RESIST)) {
+				kbAttr.removeModifier(JUGGERNAUT_KB_RESIST);
+			}
+		}
 	}
 
 	@Override
@@ -98,11 +125,12 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		theMaid.stopActiveHand(); 
 		theMaid.maidAvatar.stopActiveHand();
 		this.lastTickHealth = theMaid.getHealth(); 
+		this.killClaimed = false;
 	}
 
 	@Override
 	public boolean shouldContinueExecuting() {
-		if (actionDelayTimer > 0 || pendingDash || isDashBuff || pendingOffhandStrike) {
+		if (actionDelayTimer > 0 || pendingDash || isDashBuff || pendingOffhandStrike || (isFrenzy && slashCount > 0)) {
 			if (entityTarget != null && entityTarget.isEntityAlive() && !entityTarget.isDead) return true; 
 		}
 
@@ -142,28 +170,90 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		pendingDash = false;
 		isDashBuff = false;
 		pendingOffhandStrike = false;
+		setJuggernaut(false);
+	}
+
+	private void checkKillExtension() {
+		if (this.entityTarget != null && (this.entityTarget.isDead || this.entityTarget.getHealth() <= 0.0F)) {
+			if (this.isFrenzy && !this.killClaimed) {
+				this.frenzyTimer += 60; // 延时 3 秒
+				this.slashCount += 21;  // 追加 21 次
+				this.killClaimed = true;
+				System.err.println("[LMR-BERSERKER] 🩸 杀戮续航触发！时间+3秒，连斩补给+21次！");
+			}
+		}
 	}
 
 	@Override
 	public void updateTask() {
 		if (entityTarget == null || entityTarget.isDead || !entityTarget.isEntityAlive()) {
+			checkKillExtension();
 			resetTask();
 			return;
 		}
 
 		if (this.lastTickHealth < 0) this.lastTickHealth = theMaid.getHealth();
-		
+		if (this.soundDelayTimer > 0) this.soundDelayTimer--;
+
 		// =======================================================
-		// 0. 二连斩之【副手无情追击】
+		// 🌟 绝境锁血与易伤结算系统
+		// =======================================================
+		float currentHp = theMaid.getHealth();
+		float maxHp = theMaid.getMaxHealth();
+
+		if (this.lastTickHealth > currentHp) { // 受到伤害
+			float damageTaken = this.lastTickHealth - currentHp;
+
+			if (this.isFrenzy) {
+				// 连斩期间：承受额外 50% 易伤，但受连击免伤补正
+				float effectiveDamage = damageTaken * 1.5F * (1.0F - this.comboDefBonus);
+				float difference = effectiveDamage - damageTaken;
+				theMaid.setHealth(currentHp - difference); 
+			} else if (this.hasBerserkPerm) {
+				// 触发绝境名刀：大于50%被瞬间打到<=50%且非秒杀
+				if (this.lastTickHealth > maxHp * 0.5F && currentHp <= maxHp * 0.5F && currentHp > 0.0F) {
+					theMaid.setHealth(maxHp * 0.5F); // 强制锁半血
+					this.hasBerserkPerm = false;
+					this.isFrenzy = true;
+					this.frenzyTimer = 140; // 7秒
+					this.slashCount = 50;
+					this.comboDamageBonus = 0.0F;
+					this.comboDefBonus = 0.0F;
+					this.frenzyTarget = this.entityTarget;
+					this.isSingleTarget = true;
+					this.killClaimed = false;
+					theMaid.setBloodsuck(true); // 爆衣红眼状态
+					System.err.println("[LMR-BERSERKER] 🩸 绝境锁血！切入猩红连斩绞肉机状态！");
+				}
+			}
+		}
+
+		// 狂暴许可恢复：血量 >= 90%
+		if (!this.hasBerserkPerm && !this.isFrenzy && (currentHp / maxHp) >= 0.9F) {
+			this.hasBerserkPerm = true;
+			System.err.println("[LMR-BERSERKER] 💚 状态回满，重新获取下一次狂暴许可。");
+		}
+
+		// 狂暴计时器倒数
+		if (this.isFrenzy) {
+			this.frenzyTimer--;
+			if (this.frenzyTimer <= 0) {
+				this.isFrenzy = false;
+				theMaid.setBloodsuck(false);
+			}
+		}
+
+		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
+
+		// =======================================================
+		// 0. 副手无情追击 (突刺后处理)
 		// =======================================================
 		if (pendingOffhandStrike) {
 			if (comboDelayTimer > 0) comboDelayTimer--;
-			
 			if (comboDelayTimer <= 0) {
 				pendingOffhandStrike = false;
 				theMaid.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
 				entityTarget.hurtResistantTime = 0;
-
 				entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), this.storedOffhandDamage);
 				
 				ItemStack offItem = theMaid.getHeldItemOffhand();
@@ -180,25 +270,22 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
 					((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
 						net.minecraft.util.EnumParticleTypes.CRIT, 
-						entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 
-						25, 0.4D, 0.4D, 0.4D, 0.2D
+						entityTarget.posX, entityTarget.posY + entityTarget.height / 2.0F, entityTarget.posZ, 25, 0.4D, 0.4D, 0.4D, 0.2D
 					);
 				}
 
-				// 🌟 判定：如果第二刀秒杀了怪物，触发 10 秒过载 CD
 				if (entityTarget.getHealth() <= 0.0F || entityTarget.isDead) {
 					this.nextDashTime = theMaid.getEntityWorld().getTotalWorldTime() + 200L;
-					System.err.println("[LMR-BERSERKER-DMG] 💀 目标被连斩击杀！双斧进入 10 秒过载 CD。");
 				}
 
+				setJuggernaut(false);
 				this.actionDelayTimer = getWeaponCooldown();
+				checkKillExtension();
+				this.lastTickHealth = theMaid.getHealth();
 				return;
 			}
-			theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 			return; 
 		}
-
-		theMaid.getLookHelper().setLookPositionWithEntity(entityTarget, 30F, 30F);
 
 		// =======================================================
 		// 1. 突刺命中之【主手第一刀】
@@ -206,7 +293,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
 				this.isDashBuff = false;
-				theMaid.hurtResistantTime = 0;
+				setJuggernaut(false);
 			} else {
 				double dX = entityTarget.posX - theMaid.posX;
 				double dZ = entityTarget.posZ - theMaid.posZ;
@@ -239,8 +326,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					float offEnchantDmg = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(offItem, entityTarget.getCreatureAttribute());
 					float offTotal = offBaseDmg + offEnchantDmg;
 
-					float rawTotal = mainTotal + offTotal;
-					float finalDamage = rawTotal * 1.5F;
+					float finalDamage = (mainTotal + offTotal) * 1.5F;
 
 					double prevMotionX = entityTarget.motionX;
 					double prevMotionY = entityTarget.motionY;
@@ -256,16 +342,15 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 						this.storedOffhandDamage = finalDamage - mainTotal;
 
-						// 🌟 判定：如果第一刀就把怪物秒杀了，直接触发 10 秒过载，且不再执行第二刀
 						if (entityTarget.getHealth() <= 0.0F || entityTarget.isDead) {
 							this.nextDashTime = theMaid.getEntityWorld().getTotalWorldTime() + 200L;
-							System.err.println("[LMR-BERSERKER-DMG] 💀 目标被突刺首击秒杀！双斧进入 10 秒过载 CD。");
+							setJuggernaut(false);
 						} else {
 							this.pendingOffhandStrike = true;
 							this.comboDelayTimer = 5;
 						}
-
 					} else {
+						setJuggernaut(false);
 						this.actionDelayTimer = getWeaponCooldown();
 					}
 
@@ -274,16 +359,18 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					theMaid.motionY = 0.0D; 
 					theMaid.motionZ = 0.0D;
 					theMaid.velocityChanged = true;
+					checkKillExtension();
 					this.lastTickHealth = theMaid.getHealth();
 					return; 
 				} else {
 					this.isDashBuff = false;
+					setJuggernaut(false);
 				}
 			}
 		}
 
 		// =======================================================
-		// 2. 突刺起步前摇
+		// 2. 突刺起步前摇 (动能清零防穿模)
 		// =======================================================
 		if (actionDelayTimer > 0) {
 			actionDelayTimer--;
@@ -303,6 +390,12 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					theMaid.stopActiveHand(); 
 					theMaid.maidAvatar.stopActiveHand(); 
 					
+					// 🌟 核心：强行清零动能，防止穿墙
+					theMaid.motionX = 0.0D;
+					theMaid.motionY = 0.0D;
+					theMaid.motionZ = 0.0D;
+					theMaid.velocityChanged = true;
+
 					double dX = entityTarget.posX - theMaid.posX;
 					double dZ = entityTarget.posZ - theMaid.posZ;
 					double distance = Math.sqrt(dX * dX + dZ * dZ);
@@ -313,7 +406,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 						theMaid.motionY = 0.2D;  
 						theMaid.velocityChanged = true;
 					}
-					theMaid.hurtResistantTime = 20; 
+					
+					theMaid.hurtResistantTime = 0; 
+					setJuggernaut(true);
 					this.isDashBuff = true; 
 				}
 				this.lastTickHealth = theMaid.getHealth();
@@ -328,8 +423,10 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			if (isReroute || theMaid.getEntitySenses().canSee(entityTarget)) {
 				rerouteTimer = 4 + theMaid.getRNG().nextInt(7);
 				double distToTarget = theMaid.getDistanceSq(entityTarget);
+				
+				// 🌟 护主/连斩期爆发移速
 				float burstSpeed = moveSpeed * 1.5F; 
-				if (distToTarget < 36.0D) burstSpeed = moveSpeed * 1.8F; 
+				if (distToTarget < 36.0D || this.isFrenzy) burstSpeed = moveSpeed * 1.8F; 
 				theMaid.getNavigator().tryMoveToXYZ(entityTarget.posX, entityTarget.posY, entityTarget.posZ, burstSpeed);
 			} else {
 				theMaid.setAttackTarget(null);
@@ -338,12 +435,11 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 4. 斩击与测距判定
+		// 4. 斩击判定 (包含终极猩红连斩逻辑)
 		// =======================================================
 		if (this.actionDelayTimer <= 0 && !this.isDashBuff && !this.pendingOffhandStrike) {
 			double currentDistSq = theMaid.getDistanceSq(entityTarget.posX, entityTarget.getEntityBoundingBox().minY, entityTarget.posZ);
 			
-			// 🌟 新增：检测 10秒 CD 是否已经冷却完毕
 			if (currentDistSq >= 25.0D && currentDistSq <= 49.0D) {
 				if (theMaid.getEntityWorld().getTotalWorldTime() >= this.nextDashTime) {
 					this.pendingDash = true;
@@ -371,26 +467,92 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				boolean canSlashNow = (ld >= -0.35D) && theMaid.getSwingStatusDominant().canAttack();
 
 				if (canSlashNow) {
-					boolean isHit = theMaid.attackEntityAsMob(entityTarget); 
-					if (isHit) {
-						if (!theMaid.onGround) {
-							theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
-							if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
-								((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
-									net.minecraft.util.EnumParticleTypes.CRIT, 
-									entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 
-									15, 0.3D, 0.3D, 0.3D, 0.2D
-								);
+					
+					// 🌟 终极猩红连斩 (Omnislash) 处决系统
+					if (this.isFrenzy && this.slashCount > 0) {
+						if (this.isSingleTarget && entityTarget != this.frenzyTarget) {
+							this.isSingleTarget = false;
+						}
+
+						// 1% 强制斩杀碎肉判定
+						if (this.isSingleTarget && entityTarget.getHealth() <= entityTarget.getMaxHealth() * 0.01F) {
+							entityTarget.setHealth(0.0F);
+							System.err.println("[LMR-BERSERKER] 🩸 目标触发 1% 极刑底线，被绞肉机无情碎肉！");
+						}
+
+						float mainBaseDmg = (float)theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+						float mainEnch = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(theMaid.getHeldItemMainhand(), entityTarget.getCreatureAttribute());
+						float rawDmg = mainBaseDmg + mainEnch;
+						
+						// 40%基础刮痧 + 动态连击伤害加成
+						float finalHitDmg = rawDmg * 0.4F * (1.0F + this.comboDamageBonus);
+						
+						// 终焉一击 (最后一次斩击)
+						boolean isFinalStrike = (this.slashCount == 1);
+						if (isFinalStrike && this.isSingleTarget) {
+							float offBaseDmg = 0.0F;
+							ItemStack offItem = theMaid.getHeldItemOffhand();
+							if (!offItem.isEmpty()) {
+								com.google.common.collect.Multimap<String, net.minecraft.entity.ai.attributes.AttributeModifier> mods = offItem.getAttributeModifiers(net.minecraft.inventory.EntityEquipmentSlot.MAINHAND);
+								for (net.minecraft.entity.ai.attributes.AttributeModifier mod : mods.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) offBaseDmg += (float)mod.getAmount();
 							}
-							float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
-							entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), baseAttackDamage * 0.5F);
-						} 
+							float offEnch = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(offItem, entityTarget.getCreatureAttribute());
+							
+							finalHitDmg = (rawDmg + offBaseDmg + offEnch) * 1.5F * (1.0F + this.comboDamageBonus);
+							theMaid.playSound(net.minecraft.init.SoundEvents.BLOCK_ANVIL_FALL, 1.0F, 0.5F); // 低沉铁砧破甲音
+							System.err.println("[LMR-BERSERKER] 💥 终焉双斧合璧！爆发终极绝杀伤害！");
+						}
+
+						entityTarget.hurtResistantTime = 0; // 绝对无视怪物的无敌帧
+						boolean isHit = entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), finalHitDmg);
+
+						if (isHit) {
+							// 动态越战越勇 Buff 叠加 (+1% Dmg / +1% Def)
+							this.comboDamageBonus = Math.min(1.0F, this.comboDamageBonus + 0.01F);
+							this.comboDefBonus = Math.min(0.60F, this.comboDefBonus + 0.01F);
+
+							// 视觉分离：每 3 刻播放一次完整的交替挥臂动画
+							if (this.slashCount % 3 == 0) {
+								theMaid.swingArm(this.slashCount % 2 == 0 ? net.minecraft.util.EnumHand.MAIN_HAND : net.minecraft.util.EnumHand.OFF_HAND);
+							}
+							
+							// 🌟 防鬼畜音效限流器 (1~2秒)
+							if (this.soundDelayTimer <= 0) {
+								theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.0F, 1.0F);
+								this.soundDelayTimer = 20 + theMaid.getRNG().nextInt(20);
+							}
+						}
+						
+						this.slashCount--;
+						this.actionDelayTimer = 1; // 极限 1 刻攻速
+						checkKillExtension();
+					} 
+					else {
+						// ===============================================
+						// 普通攻击 / 次数打完后的护主转阶段
+						// ===============================================
+						boolean isHit = theMaid.attackEntityAsMob(entityTarget); 
+						if (isHit) {
+							if (!theMaid.onGround) {
+								theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+								if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
+									((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
+										net.minecraft.util.EnumParticleTypes.CRIT, 
+										entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 15, 0.3D, 0.3D, 0.3D, 0.2D
+									);
+								}
+								float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+								entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), baseAttackDamage * 0.5F);
+							} 
+						}
+						this.actionDelayTimer = getWeaponCooldown();
+						checkKillExtension();
 					}
-					this.actionDelayTimer = getWeaponCooldown();
 				} 
 			} 
 		}
 
+		// 保证最后一个动作是更新血量记录
 		this.lastTickHealth = theMaid.getHealth();
 	} 
 
