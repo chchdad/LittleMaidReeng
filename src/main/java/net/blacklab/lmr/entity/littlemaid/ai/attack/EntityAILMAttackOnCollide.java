@@ -16,7 +16,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.SharedMonsterAttributes;
 
 /**
- * メイドさんの直接攻撃系処理 (动态血线完整版 + 原味腾空暴击与动量归零 + 纯逻辑护盾 + 定制拔刀音效)
+ * メイドさんの直接攻撃系処理 (动态血线完整版 + 原味腾空暴击与动量归零 + 纯逻辑护盾 + 修复布料摩擦音效)
  */
 public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAILM {
 
@@ -342,7 +342,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 					this.isDashBuff = false;
 					this.actionDelayTimer = getWeaponCooldown();
 					
-					// 彻底的动量归零，制造完美的卡肉感！
+					// 动量清零，制造停顿卡肉感
 					theMaid.motionX = 0.0D;
 					theMaid.motionY = 0.0D; 
 					theMaid.motionZ = 0.0D;
@@ -439,7 +439,7 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						pendingBackstep = false; 
 						System.err.println("[LMR-STATE-DEBUG] 💨 招架结束，后撤拉开距离！");
 						
-						// 🌟 音效定制：有护甲则皮甲摩擦声，无护甲则脚步声
+						// 🌟 音效定制：如果有防具播放皮甲摩擦声，否则播放普通布料/普通装备滑步声
 						boolean hasArmor = false;
 						for (net.minecraft.item.ItemStack armorStack : theMaid.getArmorInventoryList()) {
 							if (armorStack != null && !armorStack.isEmpty()) { hasArmor = true; break; }
@@ -447,7 +447,8 @@ public class EntityAILMAttackOnCollide extends EntityAIBase implements IEntityAI
 						if (hasArmor) {
 							theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_ARMOR_EQUIP_LEATHER, 0.8F, 1.2F);
 						} else {
-							theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_STEP, 0.8F, 1.2F);
+							// 修复原本不支持的实体脚步声，替换为基础布料摩擦声，完美契合没穿甲滑步
+							theMaid.playSound(net.minecraft.init.SoundEvents.ITEM_ARMOR_EQUIP_GENERIC, 0.8F, 1.2F);
 						}
 						
 						double dX = theMaid.posX - entityTarget.posX;
