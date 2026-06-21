@@ -378,7 +378,8 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 //	public EntityAILMAvoidPlayer aiAvoidPlayer;
 	public EntityAILMFollowOwner aiFollow;
 	public EntityAILMMoveTowardsRestriction aiMoveTowardsRestriction;
-	public EntityAILMAttackOnCollide aiAttack;
+    public EntityAILMAttackOnCollide aiAttack;
+	public net.blacklab.lmr.entity.littlemaid.ai.attack.EntityAILMAttackBerserker aiAttackBerserker;
 	public EntityAILMAttackArrow aiShooting;
 	public EntityAILMCollectItem aiCollectItem;
 //	public EntityAILMRestrictRain aiRestrictRain;
@@ -707,6 +708,9 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 		aiFollow = new EntityAILMFollowOwner(this, 1.0F, 81D);
 		aiMoveTowardsRestriction = new EntityAILMMoveTowardsRestriction(this, 1.0);
 		aiAttack = new EntityAILMAttackOnCollide(this, 1.0F, true);
+		aiAttackBerserker = new net.blacklab.lmr.entity.littlemaid.ai.attack.EntityAILMAttackBerserker(this);
+		this.tasks.addTask(2, aiAttackBerserker);
+
 		aiShooting = new EntityAILMAttackArrow(this);
 		aiCollectItem = new EntityAILMCollectItem(this, 1.0F);
 //		aiRestrictRain = new EntityAILMRestrictRain(this);
@@ -990,6 +994,10 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 //		aiJumpTo.setEnable(true);
 //		aiFollow.setEnable(true);
 		aiAttack.setEnable(true);
+		if (aiAttackBerserker != null) {
+	        aiAttackBerserker.setEnable(true);
+		}
+
 		aiShooting.setEnable(false);
 //		aiAvoidPlayer.setEnable(true);
 //		aiWander.setEnable(maidFreedom);
