@@ -13,7 +13,7 @@ import net.minecraft.pathfinding.Path;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * 狂战士独立 AI (伤害日志回归 + 绝对霸体防击退版)
+ * 狂战士独立 AI (红温修复 + 解除防抖锁进行左右开弓测试版)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -50,7 +50,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	
 	protected int healthLockTimer = 0; 
 
-	// 🌟 将击退抗性直接拉满到 100 倍，防原版附魔判定溢出
 	protected static final java.util.UUID JUGGERNAUT_KB_UUID = java.util.UUID.fromString("8b7042a9-7fa1-4e4b-91d1-12f5a2b53f66");
 	protected static final net.minecraft.entity.ai.attributes.AttributeModifier JUGGERNAUT_KB_RESIST = new net.minecraft.entity.ai.attributes.AttributeModifier(JUGGERNAUT_KB_UUID, "Juggernaut KB Resist", 100.0D, 0).setSaved(false);
 
@@ -214,9 +213,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			float damageTaken = this.lastTickHealth - currentHp;
 
 			if (this.isFrenzy) {
-				// 🌟 核心：狂暴期间挨打，强制抹除原版击飞的物理向量 (动能锚)
 				theMaid.motionX = 0.0D;
-				theMaid.motionY = Math.min(theMaid.motionY, 0.0D); // 允许掉落，但不允许被打飞到天上
+				theMaid.motionY = Math.min(theMaid.motionY, 0.0D); 
 				theMaid.motionZ = 0.0D;
 				theMaid.velocityChanged = true;
 
@@ -241,7 +239,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 							System.err.println("[LMR-BERSERKER] 💀 受到非爆炸致命伤，锁血失效！");
 						}
 					} else {
-						theMaid.setHealth(this.lastTickHealth); // 稳定锁血
+						theMaid.setHealth(this.lastTickHealth);
 					}
 				} else {
 					float effectiveDamage = damageTaken * 1.5F * (1.0F - this.comboDefBonus);
@@ -261,6 +259,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					this.isSingleTarget = true;
 					this.killClaimed = false;
 					this.healthLockTimer = 60; 
+					
+					// 🌟 仅仅在这里触发一次红温，彻底移除了 Update 里的强刷！
 					theMaid.setBloodsuck(true); 
 					System.err.println("[LMR-BERSERKER] 🩸 绝境爆发！获取 3 秒初始锁血，切入猩红连斩！");
 				}
@@ -292,10 +292,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			if (comboDelayTimer > 0) comboDelayTimer--;
 			if (comboDelayTimer <= 0) {
 				pendingOffhandStrike = false;
+				
+				// 🌟 突刺二段的动作同样适用防抖重置
+				theMaid.isSwingInProgress = false;
+				theMaid.swingProgressInt = -1;
 				theMaid.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
+				theMaid.maidAvatar.isSwingInProgress = false;
+				theMaid.maidAvatar.swingProgressInt = -1;
+				theMaid.maidAvatar.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
+				
 				entityTarget.hurtResistantTime = 0;
 				
-				// 🌟 日志回归：副手真实伤害对账单
 				System.err.println("[LMR-BERSERKER-DMG] ⚔️ 突刺连段！副手狂劈，追加真实伤害: " + this.storedOffhandDamage);
 				entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), this.storedOffhandDamage);
 				
@@ -384,7 +391,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 						this.storedOffhandDamage = finalDamage - mainTotal;
 
-						// 🌟 日志回归：主手战报对账单
 						System.err.println("[LMR-BERSERKER-DMG] 🪓🩸 双斧突刺一发命中 (已取消击退)！");
 						System.err.println("[LMR-BERSERKER-DMG] 📊 主手 -> 合计: " + mainTotal + " | 副手 -> 合计: " + offTotal);
 						System.err.println("[LMR-BERSERKER-DMG] 💥 1.5倍跳劈最终总伤: " + finalDamage);
@@ -554,8 +560,18 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 							this.comboDamageBonus = Math.min(1.0F, this.comboDamageBonus + 0.01F);
 							this.comboDefBonus = Math.min(0.60F, this.comboDefBonus + 0.01F);
 
-							if (this.slashCount % 3 == 0) {
-								theMaid.swingArm(this.slashCount % 2 == 0 ? net.minecraft.util.EnumHand.MAIN_HAND : net.minecraft.util.EnumHand.OFF_HAND);
+							// 🌟 核心：强行破除原版防抖机制，向女仆和其 Avatar 双重推送交替挥臂指令！
+							theMaid.isSwingInProgress = false;
+							theMaid.swingProgressInt = -1;
+							theMaid.maidAvatar.isSwingInProgress = false;
+							theMaid.maidAvatar.swingProgressInt = -1;
+							
+							if (this.slashCount % 2 == 0) {
+								theMaid.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+								theMaid.maidAvatar.swingArm(net.minecraft.util.EnumHand.MAIN_HAND);
+							} else {
+								theMaid.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
+								theMaid.maidAvatar.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
 							}
 							
 							if (this.soundDelayTimer <= 0) {
