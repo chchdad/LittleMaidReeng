@@ -54,10 +54,10 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	protected static final net.minecraft.entity.ai.attributes.AttributeModifier JUGGERNAUT_KB_RESIST = new net.minecraft.entity.ai.attributes.AttributeModifier(JUGGERNAUT_KB_UUID, "Juggernaut KB Resist", 100.0D, 0).setSaved(false);
 
 	public EntityAILMAttackBerserker(EntityLittleMaid par1EntityLittleMaid) {
-		theMaid = par1EntityLittleMaid;
-		moveSpeed = 1.0F;
-		isReroute = true;
-		setMutexBits(3); 
+		this.theMaid = par1EntityLittleMaid;
+		this.moveSpeed = 1.0F;
+		this.isReroute = true;
+		this.setMutexBits(3); 
 	}
 
 	// 🌟 反射注入：真红温过载特效 (maidOverDriveTime)
@@ -132,8 +132,11 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		if(entityTarget != null && !entityTarget.isDead){
 			theMaid.playLittleMaidVoiceSound(EnumSound.FIND_TARGET_B, true);
 		}
-		if (pathToTarget != null) theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
-		else theMaid.getNavigator().clearPath();
+		if (pathToTarget != null) {
+			theMaid.getNavigator().setPath(pathToTarget, moveSpeed);
+		} else {
+			theMaid.getNavigator().clearPath();
+		}
 		
 		rerouteTimer = 0;
 		theMaid.stopActiveHand(); 
@@ -239,11 +242,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					if (currentHp <= 0.0F) {
 						boolean isExplosion = false;
 						net.minecraft.util.DamageSource lastSrc = null;
-						try { lastSrc = theMaid.getLastDamageSource(); } catch (Throwable t) {
-							try { lastSrc = net.minecraftforge.fml.common.ObfuscationReflectionHelper.getPrivateValue(EntityLivingBase.class, theMaid, "field_70718_bc"); } catch (Exception e) {}
+						try { 
+							lastSrc = theMaid.getLastDamageSource(); 
+						} catch (Throwable t) {
+							try { 
+								lastSrc = net.minecraftforge.fml.common.ObfuscationReflectionHelper.getPrivateValue(EntityLivingBase.class, theMaid, "field_70718_bc"); 
+							} catch (Exception e) {}
 						}
 
-						if (lastSrc != null && lastSrc.isExplosion()) isExplosion = true;
+						if (lastSrc != null && lastSrc.isExplosion()) {
+							isExplosion = true;
+						}
 
 						if (isExplosion) {
 							theMaid.setHealth(this.lastTickHealth);
@@ -290,7 +299,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		}
 
 		if (this.isFrenzy) {
-			if (theMaid.isRiding()) theMaid.dismountRidingEntity();
+			if (theMaid.isRiding()) {
+				theMaid.dismountRidingEntity();
+			}
 			if (theMaid.isBeingRidden()) {
 				theMaid.removePassengers();
 			}
@@ -308,7 +319,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		// 0. 副手无情追击 (突刺后处理)
 		// =======================================================
 		if (pendingOffhandStrike) {
-			if (comboDelayTimer > 0) comboDelayTimer--;
+			if (comboDelayTimer > 0) {
+				comboDelayTimer--;
+			}
 			if (comboDelayTimer <= 0) {
 				pendingOffhandStrike = false;
 				
@@ -319,7 +332,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), this.storedOffhandDamage);
 				
 				ItemStack offItem = theMaid.getHeldItemOffhand();
-				if (!offItem.isEmpty()) offItem.damageItem(1, theMaid);
+				if (!offItem.isEmpty()) {
+					offItem.damageItem(1, theMaid);
+				}
 
 				if (entityTarget instanceof EntityLivingBase && !this.isFrenzy) {
 					((EntityLivingBase)entityTarget).knockBack(theMaid, 1.5F, 
@@ -383,7 +398,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					ItemStack offItem = theMaid.getHeldItemOffhand();
 					if (!offItem.isEmpty()) {
 						com.google.common.collect.Multimap<String, net.minecraft.entity.ai.attributes.AttributeModifier> modifiers = offItem.getAttributeModifiers(net.minecraft.inventory.EntityEquipmentSlot.MAINHAND);
-						for (net.minecraft.entity.ai.attributes.AttributeModifier mod : modifiers.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) offBaseDmg += (float)mod.getAmount();
+						for (net.minecraft.entity.ai.attributes.AttributeModifier mod : modifiers.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) {
+							offBaseDmg += (float)mod.getAmount();
+						}
 					}
 					float offEnchantDmg = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(offItem, entityTarget.getCreatureAttribute());
 					float offTotal = offBaseDmg + offEnchantDmg;
@@ -552,7 +569,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 							ItemStack offItem = theMaid.getHeldItemOffhand();
 							if (!offItem.isEmpty()) {
 								com.google.common.collect.Multimap<String, net.minecraft.entity.ai.attributes.AttributeModifier> mods = offItem.getAttributeModifiers(net.minecraft.inventory.EntityEquipmentSlot.MAINHAND);
-								for (net.minecraft.entity.ai.attributes.AttributeModifier mod : mods.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) offBaseDmg += (float)mod.getAmount();
+								for (net.minecraft.entity.ai.attributes.AttributeModifier mod : mods.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) {
+									offBaseDmg += (float)mod.getAmount();
+								}
 							}
 							float offEnch = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(offItem, entityTarget.getCreatureAttribute());
 							
@@ -569,4 +588,53 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 							this.comboDefBonus = Math.min(0.60F, this.comboDefBonus + 0.01F);
 
 							// 🌟 视觉双轨分离：每 6 刻（保证前置动作安全播完）呼叫一次女仆专属挥动
-							if (this.slashCount % 3 ==
+							if (this.slashCount % 3 == 0) {
+								theMaid.setSwing(10, EnumSound.ATTACK, false);
+							}
+							
+							if (this.soundDelayTimer <= 0) {
+								theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.0F, 1.0F);
+								this.soundDelayTimer = 20 + theMaid.getRNG().nextInt(20);
+							}
+						}
+						
+						this.slashCount--;
+						this.actionDelayTimer = 2; 
+						checkKillExtension();
+					} 
+					else {
+						boolean isHit = theMaid.attackEntityAsMob(entityTarget); 
+						if (isHit) {
+							if (!theMaid.onGround) {
+								theMaid.playSound(net.minecraft.init.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT, 1.0F, 1.0F);
+								if (theMaid.getEntityWorld() instanceof net.minecraft.world.WorldServer) {
+									((net.minecraft.world.WorldServer)theMaid.getEntityWorld()).spawnParticle(
+										net.minecraft.util.EnumParticleTypes.CRIT, 
+										entityTarget.posX, entityTarget.posY + (entityTarget.height / 2.0F), entityTarget.posZ, 15, 0.3D, 0.3D, 0.3D, 0.2D
+									);
+								}
+								float baseAttackDamage = (float)theMaid.getEntityAttribute(net.minecraft.entity.SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+								entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), baseAttackDamage * 0.5F);
+							} 
+						}
+						this.actionDelayTimer = getWeaponCooldown();
+						checkKillExtension();
+					}
+				} 
+			} 
+		}
+
+		setJuggernaut(this.isDashBuff || this.isFrenzy);
+		this.lastTickHealth = theMaid.getHealth();
+	} 
+
+	@Override
+	public void setEnable(boolean pFlag) { 
+		this.fEnable = pFlag; 
+	}
+	
+	@Override
+	public boolean getEnable() { 
+		return this.fEnable; 
+	}
+}
