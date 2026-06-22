@@ -13,7 +13,7 @@ import net.minecraft.pathfinding.Path;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * 狂战士独立 AI (爆炸绝对锁血 + 常规致命伤碎甲 + 禁骑乘版)
+ * 狂战士独立 AI (狂暴全局霸体 + 统一状态机优化版)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -169,7 +169,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		pendingDash = false;
 		isDashBuff = false;
 		pendingOffhandStrike = false;
-		setJuggernaut(false);
+		setJuggernaut(false); // 彻底重置时剥离霸体
 	}
 
 	private void checkKillExtension() {
@@ -178,7 +178,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				this.frenzyTimer += 60; 
 				this.slashCount += 21;  
 				this.killClaimed = true;
-				System.err.println("[LMR-BERSERKER]  续航触发！时间+3秒，连斩补给+21次！");
+				System.err.println("[LMR-BERSERKER] 🩸 杀戮续航触发！时间+3秒，连斩补给+21次！");
 			}
 		}
 	}
@@ -203,11 +203,11 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			this.slashCount = 0;
 			this.healthLockTimer = 0;
 			theMaid.setBloodsuck(false);
-			System.err.println("[LMR-BERSERKER]  血量恢复至 60% 以上，连砍狂暴状态解除。");
+			System.err.println("[LMR-BERSERKER] 🩸 血量恢复至 60% 以上，连砍狂暴状态解除。");
 		}
 
 		// =======================================================
-		//  3 秒真伤锁血、爆炸免疫 与 易伤系统
+		// 🌟 3 秒真伤锁血、爆炸免疫 与 易伤系统
 		// =======================================================
 		if (this.lastTickHealth > currentHp) {
 			float damageTaken = this.lastTickHealth - currentHp;
@@ -215,7 +215,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			if (this.isFrenzy) {
 				if (this.healthLockTimer > 0) {
 					if (currentHp <= 0.0F) {
-						//  致命伤判定：检查是否为爆炸
 						boolean isExplosion = false;
 						net.minecraft.util.DamageSource lastSrc = null;
 						try {
@@ -231,23 +230,19 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 						}
 
 						if (isExplosion) {
-							// 爆炸致命伤：强行锁血，死里逃生
 							theMaid.setHealth(this.lastTickHealth);
 							theMaid.isDead = false;
 							theMaid.deathTime = 0;
-							System.err.println("[LMR-BERSERKER]  触发爆炸绝对锁血，免疫爆炸致死！");
+							System.err.println("[LMR-BERSERKER] 💥 触发爆炸绝对锁血，免疫爆炸致死！");
 						} else {
-							// 非爆炸致命伤：锁血直接失效，当场阵亡
 							this.healthLockTimer = 0;
 							this.isFrenzy = false;
-							System.err.println("[LMR-BERSERKER]  受到非爆炸致命伤，锁血失效！");
+							System.err.println("[LMR-BERSERKER] 💀 受到非爆炸致命伤，锁血失效！");
 						}
 					} else {
-						// 非致命伤：稳定锁血
 						theMaid.setHealth(this.lastTickHealth);
 					}
 				} else {
-					// 3 秒锁血期结束：硬吃 50% 额外易伤
 					float effectiveDamage = damageTaken * 1.5F * (1.0F - this.comboDefBonus);
 					float difference = effectiveDamage - damageTaken;
 					theMaid.setHealth(currentHp - difference); 
@@ -265,21 +260,20 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					this.isSingleTarget = true;
 					this.killClaimed = false;
 					
-					this.healthLockTimer = 60; // 3秒初始锁血期
+					this.healthLockTimer = 60; 
 					
 					theMaid.setBloodsuck(true); 
-					System.err.println("[LMR-BERSERKER]  绝境！获取 3 秒初始锁血，切入连斩.");
+					System.err.println("[LMR-BERSERKER] 🩸 绝境爆发！获取 3 秒初始锁血，切入猩红连斩！");
 				}
 			}
 		}
 
 		if (!this.hasBerserkPerm && !this.isFrenzy && (currentHp / maxHp) >= 0.9F) {
 			this.hasBerserkPerm = true;
-			System.err.println("[LMR-BERSERKER]  状态回满，重新获取下一次狂暴许可。");
+			System.err.println("[LMR-BERSERKER] 💚 状态回满，重新获取下一次狂暴许可。");
 		}
 
 		if (this.isFrenzy) {
-			//  狂暴期间剥离所有骑乘
 			if (theMaid.isRiding()) {
 				theMaid.dismountRidingEntity();
 			}
@@ -329,12 +323,17 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					this.nextDashTime = theMaid.getEntityWorld().getTotalWorldTime() + 200L;
 				}
 
-				setJuggernaut(false);
 				this.actionDelayTimer = getWeaponCooldown();
 				checkKillExtension();
+				
+				// 🌟 全局霸体统一判定，不再零散调用
+				setJuggernaut(this.isDashBuff || this.isFrenzy);
 				this.lastTickHealth = theMaid.getHealth();
 				return;
 			}
+			
+			setJuggernaut(this.isDashBuff || this.isFrenzy);
+			this.lastTickHealth = theMaid.getHealth();
 			return; 
 		}
 
@@ -344,7 +343,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		if (this.isDashBuff) {
 			if (theMaid.onGround && Math.abs(theMaid.motionX) < 0.05D && Math.abs(theMaid.motionZ) < 0.05D) {
 				this.isDashBuff = false;
-				setJuggernaut(false);
 			} else {
 				double dX = entityTarget.posX - theMaid.posX;
 				double dZ = entityTarget.posZ - theMaid.posZ;
@@ -357,6 +355,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					theMaid.motionX = (dX / distance) * 0.9D;
 					theMaid.motionZ = (dZ / distance) * 0.9D;
 					theMaid.velocityChanged = true;
+					
+					setJuggernaut(this.isDashBuff || this.isFrenzy);
 					this.lastTickHealth = theMaid.getHealth();
 					return; 
 				} 
@@ -395,13 +395,11 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 						if (entityTarget.getHealth() <= 0.0F || entityTarget.isDead) {
 							this.nextDashTime = theMaid.getEntityWorld().getTotalWorldTime() + 200L;
-							setJuggernaut(false);
 						} else {
 							this.pendingOffhandStrike = true;
 							this.comboDelayTimer = 5;
 						}
 					} else {
-						setJuggernaut(false);
 						this.actionDelayTimer = getWeaponCooldown();
 					}
 
@@ -411,11 +409,12 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					theMaid.motionZ = 0.0D;
 					theMaid.velocityChanged = true;
 					checkKillExtension();
+					
+					setJuggernaut(this.isDashBuff || this.isFrenzy);
 					this.lastTickHealth = theMaid.getHealth();
 					return; 
 				} else {
 					this.isDashBuff = false;
-					setJuggernaut(false);
 				}
 			}
 		}
@@ -458,9 +457,10 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					}
 					
 					theMaid.hurtResistantTime = 0; 
-					setJuggernaut(true);
 					this.isDashBuff = true; 
 				}
+				
+				setJuggernaut(this.isDashBuff || this.isFrenzy);
 				this.lastTickHealth = theMaid.getHealth();
 				return; 
 			}
@@ -493,6 +493,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				if (theMaid.getEntityWorld().getTotalWorldTime() >= this.nextDashTime) {
 					this.pendingDash = true;
 					this.actionDelayTimer = 10; 
+					
+					setJuggernaut(this.isDashBuff || this.isFrenzy);
+					this.lastTickHealth = theMaid.getHealth();
 					return;
 				}
 			}
@@ -525,7 +528,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 						if (this.isSingleTarget && entityTarget.getHealth() <= entityTarget.getMaxHealth() * 0.01F) {
 							entityTarget.setHealth(0.0F);
-							System.err.println("[LMR-BERSERKER]  目标触发 1% 底线");
+							System.err.println("[LMR-BERSERKER] 🩸 目标触发 1% 极刑底线，被绞肉机无情碎肉！");
 						}
 
 						float mainBaseDmg = (float)theMaid.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
@@ -546,7 +549,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 							
 							finalHitDmg = (rawDmg + offBaseDmg + offEnch) * 1.5F * (1.0F + this.comboDamageBonus);
 							theMaid.playSound(net.minecraft.init.SoundEvents.BLOCK_ANVIL_FALL, 1.0F, 0.5F); 
-							System.err.println("[LMR-BERSERKER]  爆发绝伤！");
+							System.err.println("[LMR-BERSERKER] 💥 终焉双斧合璧！爆发终极绝杀伤害！");
 						}
 
 						entityTarget.hurtResistantTime = 0; 
@@ -592,6 +595,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			} 
 		}
 
+		// 🌟 最终状态统一监听器：维持或解除霸体
+		setJuggernaut(this.isDashBuff || this.isFrenzy);
 		this.lastTickHealth = theMaid.getHealth();
 	} 
 
