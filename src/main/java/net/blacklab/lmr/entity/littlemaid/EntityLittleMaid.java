@@ -2676,44 +2676,6 @@ public class EntityLittleMaid extends EntityTameable implements IMultiModelEntit
 	@SuppressWarnings("deprecation")
 	@Override
 	public void onLivingUpdate() {
-		// ====================================================================
-		//  动态四段式战斗状态(核心)
-		// ====================================================================
-		if (!this.getEntityWorld().isRemote) {
-			float maxH = this.getMaxHealth();
-			float curH = this.getHealth();
-			float pct = curH / maxH;
-
-			// 1. 绝境拉扯 (10%)
-			if (pct <= 0.10F) {
-				this.wasInDespair = true;
-				this.setBloodsuck(false); // 强制没收狂暴
-			}
-
-			// 2. 动态充能
-			if (this.wasInDespair) {
-				if (pct >= 0.80F) {
-					this.hasBerserkCharge = true;
-					this.wasInDespair = false; // 绝地补偿：80% 即可充能
-				}
-			} else {
-				if (pct >= 0.90F) {
-					this.hasBerserkCharge = true; // 常规：90% 充能
-				}
-			}
-
-			// 3. 狂暴爆发 (50%)
-			if (this.hasBerserkCharge && pct <= 0.50F && pct > 0.10F) {
-				this.setBloodsuck(true);
-			}
-
-			// 4. 解除狂暴与消耗充能 (60%)
-			if (this.isBloodsuck() && pct >= 0.60F) {
-				this.setBloodsuck(false); 
-				this.hasBerserkCharge = false; // 消耗本次充能
-			}
-		}
-		// ====================================================================
 		
 		float lhealth = getHealth();
 		if (lhealth > 0) {
