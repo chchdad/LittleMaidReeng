@@ -13,7 +13,7 @@ import net.minecraft.pathfinding.Path;
 import net.minecraft.util.math.MathHelper;
 
 /**
- * 狂战士独立 AI (狂暴全局霸体 + 统一状态机优化版)
+ * 狂战士独立 AI (伤害日志回归 + 绝对霸体防击退版)
  */
 public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAILM {
 
@@ -50,8 +50,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 	
 	protected int healthLockTimer = 0; 
 
+	// 🌟 将击退抗性直接拉满到 100 倍，防原版附魔判定溢出
 	protected static final java.util.UUID JUGGERNAUT_KB_UUID = java.util.UUID.fromString("8b7042a9-7fa1-4e4b-91d1-12f5a2b53f66");
-	protected static final net.minecraft.entity.ai.attributes.AttributeModifier JUGGERNAUT_KB_RESIST = new net.minecraft.entity.ai.attributes.AttributeModifier(JUGGERNAUT_KB_UUID, "Juggernaut KB Resist", 1.0D, 0).setSaved(false);
+	protected static final net.minecraft.entity.ai.attributes.AttributeModifier JUGGERNAUT_KB_RESIST = new net.minecraft.entity.ai.attributes.AttributeModifier(JUGGERNAUT_KB_UUID, "Juggernaut KB Resist", 100.0D, 0).setSaved(false);
 
 	public EntityAILMAttackBerserker(EntityLittleMaid par1EntityLittleMaid) {
 		theMaid = par1EntityLittleMaid;
@@ -169,7 +170,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		pendingDash = false;
 		isDashBuff = false;
 		pendingOffhandStrike = false;
-		setJuggernaut(false); // 彻底重置时剥离霸体
+		setJuggernaut(false); 
 	}
 
 	private void checkKillExtension() {
@@ -207,27 +208,27 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		}
 
 		// =======================================================
-		// 🌟 3 秒真伤锁血、爆炸免疫 与 易伤系统
+		// 🌟 3 秒真伤锁血、爆炸免疫 与 物理动能防击飞
 		// =======================================================
 		if (this.lastTickHealth > currentHp) {
 			float damageTaken = this.lastTickHealth - currentHp;
 
 			if (this.isFrenzy) {
+				// 🌟 核心：狂暴期间挨打，强制抹除原版击飞的物理向量 (动能锚)
+				theMaid.motionX = 0.0D;
+				theMaid.motionY = Math.min(theMaid.motionY, 0.0D); // 允许掉落，但不允许被打飞到天上
+				theMaid.motionZ = 0.0D;
+				theMaid.velocityChanged = true;
+
 				if (this.healthLockTimer > 0) {
 					if (currentHp <= 0.0F) {
 						boolean isExplosion = false;
 						net.minecraft.util.DamageSource lastSrc = null;
-						try {
-							lastSrc = theMaid.getLastDamageSource();
-						} catch (Throwable t) {
-							try {
-								lastSrc = net.minecraftforge.fml.common.ObfuscationReflectionHelper.getPrivateValue(EntityLivingBase.class, theMaid, "field_70718_bc");
-							} catch (Exception e) {}
+						try { lastSrc = theMaid.getLastDamageSource(); } catch (Throwable t) {
+							try { lastSrc = net.minecraftforge.fml.common.ObfuscationReflectionHelper.getPrivateValue(EntityLivingBase.class, theMaid, "field_70718_bc"); } catch (Exception e) {}
 						}
 
-						if (lastSrc != null && lastSrc.isExplosion()) {
-							isExplosion = true;
-						}
+						if (lastSrc != null && lastSrc.isExplosion()) isExplosion = true;
 
 						if (isExplosion) {
 							theMaid.setHealth(this.lastTickHealth);
@@ -240,7 +241,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 							System.err.println("[LMR-BERSERKER] 💀 受到非爆炸致命伤，锁血失效！");
 						}
 					} else {
-						theMaid.setHealth(this.lastTickHealth);
+						theMaid.setHealth(this.lastTickHealth); // 稳定锁血
 					}
 				} else {
 					float effectiveDamage = damageTaken * 1.5F * (1.0F - this.comboDefBonus);
@@ -259,9 +260,7 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					this.frenzyTarget = this.entityTarget;
 					this.isSingleTarget = true;
 					this.killClaimed = false;
-					
 					this.healthLockTimer = 60; 
-					
 					theMaid.setBloodsuck(true); 
 					System.err.println("[LMR-BERSERKER] 🩸 绝境爆发！获取 3 秒初始锁血，切入猩红连斩！");
 				}
@@ -274,12 +273,8 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 		}
 
 		if (this.isFrenzy) {
-			if (theMaid.isRiding()) {
-				theMaid.dismountRidingEntity();
-			}
-			if (theMaid.isBeingRidden()) {
-				theMaid.removePassengers();
-			}
+			if (theMaid.isRiding()) theMaid.dismountRidingEntity();
+			if (theMaid.isBeingRidden()) theMaid.removePassengers();
 
 			this.frenzyTimer--;
 			if (this.frenzyTimer <= 0) {
@@ -299,6 +294,9 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				pendingOffhandStrike = false;
 				theMaid.swingArm(net.minecraft.util.EnumHand.OFF_HAND);
 				entityTarget.hurtResistantTime = 0;
+				
+				// 🌟 日志回归：副手真实伤害对账单
+				System.err.println("[LMR-BERSERKER-DMG] ⚔️ 突刺连段！副手狂劈，追加真实伤害: " + this.storedOffhandDamage);
 				entityTarget.attackEntityFrom(net.minecraft.util.DamageSource.causeMobDamage(theMaid), this.storedOffhandDamage);
 				
 				ItemStack offItem = theMaid.getHeldItemOffhand();
@@ -325,13 +323,10 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 				this.actionDelayTimer = getWeaponCooldown();
 				checkKillExtension();
-				
-				// 🌟 全局霸体统一判定，不再零散调用
 				setJuggernaut(this.isDashBuff || this.isFrenzy);
 				this.lastTickHealth = theMaid.getHealth();
 				return;
 			}
-			
 			setJuggernaut(this.isDashBuff || this.isFrenzy);
 			this.lastTickHealth = theMaid.getHealth();
 			return; 
@@ -355,7 +350,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					theMaid.motionX = (dX / distance) * 0.9D;
 					theMaid.motionZ = (dZ / distance) * 0.9D;
 					theMaid.velocityChanged = true;
-					
 					setJuggernaut(this.isDashBuff || this.isFrenzy);
 					this.lastTickHealth = theMaid.getHealth();
 					return; 
@@ -370,15 +364,12 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					ItemStack offItem = theMaid.getHeldItemOffhand();
 					if (!offItem.isEmpty()) {
 						com.google.common.collect.Multimap<String, net.minecraft.entity.ai.attributes.AttributeModifier> modifiers = offItem.getAttributeModifiers(net.minecraft.inventory.EntityEquipmentSlot.MAINHAND);
-						for (net.minecraft.entity.ai.attributes.AttributeModifier mod : modifiers.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) {
-							offBaseDmg += (float)mod.getAmount();
-						}
+						for (net.minecraft.entity.ai.attributes.AttributeModifier mod : modifiers.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) offBaseDmg += (float)mod.getAmount();
 					}
 					float offEnchantDmg = net.minecraft.enchantment.EnchantmentHelper.getModifierForCreature(offItem, entityTarget.getCreatureAttribute());
 					float offTotal = offBaseDmg + offEnchantDmg;
 
 					float finalDamage = (mainTotal + offTotal) * 1.5F;
-
 					double prevMotionX = entityTarget.motionX;
 					double prevMotionY = entityTarget.motionY;
 					double prevMotionZ = entityTarget.motionZ;
@@ -393,8 +384,14 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 
 						this.storedOffhandDamage = finalDamage - mainTotal;
 
+						// 🌟 日志回归：主手战报对账单
+						System.err.println("[LMR-BERSERKER-DMG] 🪓🩸 双斧突刺一发命中 (已取消击退)！");
+						System.err.println("[LMR-BERSERKER-DMG] 📊 主手 -> 合计: " + mainTotal + " | 副手 -> 合计: " + offTotal);
+						System.err.println("[LMR-BERSERKER-DMG] 💥 1.5倍跳劈最终总伤: " + finalDamage);
+
 						if (entityTarget.getHealth() <= 0.0F || entityTarget.isDead) {
 							this.nextDashTime = theMaid.getEntityWorld().getTotalWorldTime() + 200L;
+							System.err.println("[LMR-BERSERKER-DMG] 💀 目标被突刺首击秒杀！");
 						} else {
 							this.pendingOffhandStrike = true;
 							this.comboDelayTimer = 5;
@@ -459,7 +456,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 					theMaid.hurtResistantTime = 0; 
 					this.isDashBuff = true; 
 				}
-				
 				setJuggernaut(this.isDashBuff || this.isFrenzy);
 				this.lastTickHealth = theMaid.getHealth();
 				return; 
@@ -493,7 +489,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 				if (theMaid.getEntityWorld().getTotalWorldTime() >= this.nextDashTime) {
 					this.pendingDash = true;
 					this.actionDelayTimer = 10; 
-					
 					setJuggernaut(this.isDashBuff || this.isFrenzy);
 					this.lastTickHealth = theMaid.getHealth();
 					return;
@@ -595,7 +590,6 @@ public class EntityAILMAttackBerserker extends EntityAIBase implements IEntityAI
 			} 
 		}
 
-		// 🌟 最终状态统一监听器：维持或解除霸体
 		setJuggernaut(this.isDashBuff || this.isFrenzy);
 		this.lastTickHealth = theMaid.getHealth();
 	} 
